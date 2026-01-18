@@ -7,14 +7,16 @@ import requests
 import io
 import os
 import yfinance as yf
+from strategy import *
 
 # --- 配置区域 ---
+
 # 1. 邮件发送配置
-SMTP_SERVER = "smtp.gmail.com"  # Outlook的SMTP服务器地址
-SMTP_PORT = 587  # Outlook的STARTTLS端口
-SENDER_EMAIL = os.getenv('EMAIL_NAME')
-SENDER_PASSWORD = os.getenv('EMAIL_PASSWORD')
-RECIPIENT_EMAIL = os.getenv('RECIPIENT_EMAIL')
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 587
+SENDER_EMAIL = os.getenv("EMAIL_NAME")
+SENDER_PASSWORD = os.getenv("EMAIL_PASSWORD")
+RECIPIENT_EMAIL = os.getenv("RECIPIENT_EMAIL")
 if not SENDER_EMAIL:
     raise ValueError("环境变量 'EMAIL_NAME' 未设置")
 if not SENDER_PASSWORD:
@@ -22,206 +24,154 @@ if not SENDER_PASSWORD:
 if not RECIPIENT_EMAIL:
     raise ValueError("环境变量 'RECIPIENT_EMAIL' 未设置")
 
-def get_nasdaq_symbols():
-    """
-    从NASDAQ官网下载并解析nasdaqlisted.txt文件，获取股票代码列表。
-    """
-    url = "https://www.nasdaqtrader.com/dynamic/symdir/nasdaqlisted.txt"
-    try:
-        response = requests.get(url)
-        response.raise_for_status()  # 如果请求失败，会抛出异常
-        # 使用io.StringIO将响应内容包装成文件对象，然后用pandas读取
-        df = pd.read_csv(io.StringIO(response.text), sep="|")
-        # 'Symbol' 列包含股票代码
-        symbols = df["Symbol"].tolist()
-        print(f"成功获取纳斯达克上市股票列表，共 {len(symbols)} 只。")
-        return symbols
-    except requests.exceptions.RequestException as e:
-        print(f"下载股票列表失败: {e}")
-        return []
-    except pd.errors.EmptyDataError:
-        print("下载的文件为空或格式不正确。")
-        return []
-    except Exception as e:
-        print(f"解析股票列表时发生错误: {e}")
-        return []
+# 2. 定义要执行的策略
+EXECUTE_STRATEGIES = [
+    VolumeSurgeStrategy(),
+    MACrossStrategy(),
+    CDSignalStrategy(),
+]
+
+# --- 配置区域结束 ---
 
 
-def get_stock_data(ticker):
+def get_all_required_data_columns(strategies):
+    """汇总所有策略需要的列"""
+    all_cols = set(["Close", "Volume"])
+    for strategy in strategies:
+        all_cols.update(strategy.get_required_data_columns())
+    return list(all_cols)
+
+
+def preprocess_data(hist_data, all_required_columns):
     """
-    获取指定股票的数据，用于计算成交额和均线。
+    根据策略要求预处理数据，例如计算均线、成交额等。
+    """
+    if "DollarVolume" in all_required_columns:
+        hist_data["DollarVolume"] = hist_data["Close"] * hist_data["Volume"]
+
+    if "MA5" in all_required_columns:
+        hist_data["MA5"] = hist_data["Close"].rolling(window=5).mean()
+
+    if "MA10" in all_required_columns:
+        hist_data["MA10"] = hist_data["Close"].rolling(window=10).mean()
+
+    if "Simulated_Delta" in all_required_columns:
+        hist_data["Price_Change"] = hist_data["Close"].diff()
+        hist_data["Simulated_Delta"] = hist_data["Price_Change"] * hist_data["Volume"]
+        hist_data["Cumulative_Simulated_Delta"] = hist_data["Simulated_Delta"].cumsum()
+
+    return hist_data
+
+
+def scan_single_stock(ticker, strategies):
+    """
+    对单个股票执行所有策略扫描。
     """
 
-    # 创建一个Ticker对象
     stock = yf.Ticker(ticker)
+    # 获取所有策略需要的最大天数的历史数据
+    max_days_needed = max(strategy.get_required_days() for strategy in strategies)
+    hist_data_raw = stock.history(period=f"{max_days_needed + 10}d")
 
-    # 获取历史数据，需要足够多的数据来计算MA5, MA10, 过去60天平均额, 过去10天平均额
-    # 获取至少61天的数据以计算MA10和过去60天均额，获取额外几天用于MA5上穿判断
-    hist_data = stock.history(period="70d")  # 70天足够
+    if hist_data_raw is None or hist_data_raw.empty:
+        print(f"警告: {ticker} 的原始历史数据为空或获取失败，跳过。")
+        return {}
 
-    if (
-        hist_data.empty or len(hist_data) < 11
-    ):  # 至少需要11天数据来计算MA10和前一天的MA5
-        print(f"警告: {ticker} 的历史数据不足，跳过。")
-        return None, None, None, None, None, None
+    all_required_cols = get_all_required_data_columns(strategies)
+    hist_data_processed = preprocess_data(hist_data_raw.copy(), all_required_cols)
 
-    # 计算移动平均线
-    hist_data["MA5"] = hist_data["Close"].rolling(window=5).mean()
-    hist_data["MA10"] = hist_data["Close"].rolling(window=10).mean()
+    if hist_data_processed is None or hist_data_processed.empty:
+        print(f"警告: {ticker} 的预处理数据为空，跳过。")
+        return {}
 
-    # 计算每日成交额 (Dollar Volume)
-    hist_data["DollarVolume"] = hist_data["Close"] * hist_data["Volume"]
+    results = {}
+    for strategy in strategies:
+        days_needed = strategy.get_required_days()
 
-    # --- 条件1: 成交额异动 ---
-    # 当日成交额 (最后一天)
-    current_dollar_volume = hist_data["DollarVolume"].iloc[-1]
-    # 过去60天平均成交额 (不包含今天)
-    past_60_dollar_volumes = hist_data["DollarVolume"].iloc[-61:-1]
-    if len(past_60_dollar_volumes) < 60:
-        print(f"警告: {ticker} 的过去60天交易日数据不足，跳过成交额检查。")
-        dollar_vol_condition_met = False
-        avg_dollar_vol_60 = None
-        ratio = None
-    else:
-        avg_dollar_vol_60 = past_60_dollar_volumes.mean()
-        ratio = current_dollar_volume / avg_dollar_vol_60
-        dollar_vol_condition_met = ratio > 2
+        if len(hist_data_processed) < days_needed:
+            # print(f"警告: {ticker} 的数据不足以执行 {strategy.get_name()} 策略 (需要{days_needed}天, 有{len(hist_data_processed)}天)。")
+            # 如果数据不够，继续下一个策略，而不是跳过整个股票
+            continue
 
-    # --- 条件2: 均线金叉 + 高额交易 ---
-    # 检查MA5是否上穿MA10
-    # 当前MA5 > MA10，且前一天MA5 <= MA10
-    current_ma5 = hist_data["MA5"].iloc[-1]
-    current_ma10 = hist_data["MA10"].iloc[-1]
-    prev_ma5 = hist_data["MA5"].iloc[-2]
-    prev_ma10 = hist_data["MA10"].iloc[-2]
+        strategy_past_data = hist_data_processed.iloc[-days_needed:-1]
+        strategy_data_row = hist_data_processed.iloc[-1]
 
-    ma_condition_met = current_ma5 > current_ma10 and prev_ma5 <= prev_ma10
+        try:
+            if strategy.check_condition(strategy_data_row, strategy_past_data):
+                formatted_result = strategy.format_result(
+                    ticker, strategy_data_row, strategy_past_data
+                )
+                if strategy.get_name() not in results:
+                    results[strategy.get_name()] = []
+                results[strategy.get_name()].append(formatted_result)
+                print(f"发现 {strategy.get_name()} 信号股票: {ticker}")
+        except Exception as e:
+            print(f"执行 {strategy.get_name()} 策略时，处理股票 {ticker} 出错: {e}")
 
-    # 检查过去10天平均成交额是否大于5000万美元
-    past_10_dollar_volumes = hist_data["DollarVolume"].iloc[-11:-1]  # 不包含今天
-    if len(past_10_dollar_volumes) < 10:
-        print(f"警告: {ticker} 的过去10天交易日数据不足，跳过均线交易额检查。")
-        avg_dollar_vol_10 = None
-        high_dollar_vol_condition_met = False
-    else:
-        avg_dollar_vol_10 = past_10_dollar_volumes.mean()
-        if pd.isna(avg_dollar_vol_10) or avg_dollar_vol_10 == 0:
-            print(
-                f"警告: {ticker} 的过去10天平均成交额无效 ({avg_dollar_vol_10})，跳过均线交易额检查。"
-            )
-            high_dollar_vol_condition_met = False
-        else:
-            high_dollar_vol_condition_met = avg_dollar_vol_10 > 50_000_000  # 5000万美元
-
-    # 综合均线和交易额条件
-    ma_and_dollar_vol_condition_met = ma_condition_met and high_dollar_vol_condition_met
-
-    return (
-        dollar_vol_condition_met,
-        avg_dollar_vol_60,
-        ma_and_dollar_vol_condition_met,
-        current_dollar_volume,
-        avg_dollar_vol_10,
-        ratio,
-    )
+    return results
 
 
-def scan_stocks(stock_list):
+def scan_stocks(stock_list, strategies):
     """
-    遍历股票列表，查找符合条件的股票。
+    遍历股票列表，执行所有策略扫描。
     """
-    volume_results = []  # 成交额异动股
-    ma_results = []  # 均线金叉股
+    all_results = {strategy.get_name(): [] for strategy in strategies}
 
     for ticker in stock_list:
         try:
-            vol_met, avg_vol_60, ma_met, current_vol, avg_dollar_vol_10, ratio = (
-                get_stock_data(ticker)
-            )
-
-            if vol_met and avg_vol_60 is not None and ratio is not None:
-                volume_results.append(
-                    {
-                        "Symbol": ticker,
-                        "Current Dollar Volume": f"${current_vol:,.2f}",  # 格式化为带美元符号和千分位的成交额
-                        "60-Day Avg Dollar Volume": f"${avg_vol_60:,.2f}",  # 格式化为带美元符号和千分位的成交额
-                        "Ratio (Current / 60-Day Avg)": f"{ratio:.2f}",  # 添加比例列
-                    }
-                )
-                print(f"发现成交额异动股票: {ticker}")
-
-            if ma_met and avg_dollar_vol_10 is not None:
-                ma_results.append(
-                    {
-                        "Symbol": ticker,
-                        "Avg Dollar Volume (10-day)": f"${avg_dollar_vol_10:,.2f}",
-                    }
-                )
-                print(f"发现均线金叉+高额交易股票: {ticker}")
-
+            stock_results = scan_single_stock(ticker, strategies)
+            for strategy_class, results_list in stock_results.items():
+                all_results[strategy_class].extend(results_list)
         except Exception as e:
-            # 可能因网络、API限制或股票代码无效导致错误
             print(f"处理股票 {ticker} 时出错: {e}")
 
-    # 转换为DataFrame并排序
-    df_volumes = pd.DataFrame(volume_results)
-    if not df_volumes.empty:
-        # 为了排序，创建一个临时的数值列 (基于当前成交额)
-        df_volumes["Current Dollar Volume Num"] = (
-            df_volumes["Current Dollar Volume"]
-            .str.replace("$", "")
-            .str.replace(",", "")
-            .astype(float)
-        )
-        df_volumes = (
-            df_volumes.sort_values(by="Current Dollar Volume Num", ascending=False)
-            .drop(columns=["Current Dollar Volume Num"])
-            .reset_index(drop=True)
-        )
+    # 排序
+    dataframes = {}
+    for strategy in strategies:
+        class_name = strategy.get_name()
+        df = pd.DataFrame(all_results[class_name])
+        if not df.empty:
+            sort_col_display = strategy.get_sort_column().replace(" Num", "")
+            if sort_col_display in df.columns:
+                df[strategy.get_sort_column()] = (
+                    df[sort_col_display]
+                    .str.replace("$", "")
+                    .str.replace(",", "")
+                    .astype(float)
+                )
+                df = (
+                    df.sort_values(
+                        by=strategy.get_sort_column(),
+                        ascending=strategy.get_sort_ascending(),
+                    )
+                    .drop(columns=[strategy.get_sort_column()])
+                    .reset_index(drop=True)
+                )
+        dataframes[class_name] = df
 
-    df_mas = pd.DataFrame(ma_results)
-    if not df_mas.empty:
-        # 按平均交易额从高到低排序
-        df_mas["Avg Dollar Volume (10-day) Num"] = (
-            df_mas["Avg Dollar Volume (10-day)"]
-            .str.replace("$", "")
-            .str.replace(",", "")
-            .astype(float)
-        )
-        df_mas = (
-            df_mas.sort_values(by="Avg Dollar Volume (10-day) Num", ascending=False)
-            .drop(columns=["Avg Dollar Volume (10-day) Num"])
-            .reset_index(drop=True)
-        )
-
-    return df_volumes, df_mas
+    return dataframes
 
 
-def send_email(df_volume_results, df_ma_results):
+def send_email(dataframes_by_strategy):
     """
-    将两种结果数据框发送到指定邮箱。
+    将多种策略的结果数据框发送到指定邮箱。
     """
     html_content = (
         f"<h2>美股盘后扫描结果 - {pd.Timestamp.now().strftime('%Y-%m-%d')}</h2>"
     )
 
-    if df_volume_results.empty:
-        html_content += "<h3>1. 成交额异动股</h3><p>今日没有找到成交额超过过去60天平均水平2倍的股票。</p>"
-    else:
-        html_content += "<h3>1. 成交额异动股 (按当日成交额排序)</h3>"
-        html_table_volumes = df_volume_results.to_html(
-            index=False, table_id="results_volumes"
-        )
-        html_content += html_table_volumes
+    for strategy_instance in EXECUTE_STRATEGIES:
+        class_name = strategy_instance.get_name()
+        df = dataframes_by_strategy.get(class_name, pd.DataFrame())
 
-    if df_ma_results.empty:
-        html_content += "<h3>2. MA5上穿MA10且过去10天平均交易额>5000万美元</h3><p>今日没有找到符合条件的股票。</p>"
-    else:
-        html_content += (
-            "<h3>2. MA5上穿MA10且过去10天平均交易额>5000万美元 (按平均交易额排序)</h3>"
-        )
-        html_table_mas = df_ma_results.to_html(index=False, table_id="results_mas")
-        html_content += html_table_mas
+        if df.empty:
+            html_content += f"<h3>{strategy_instance.get_description()}</h3><p>今日没有找到符合条件的股票。</p>"
+        else:
+            html_content += f"<h3>{strategy_instance.get_description()}</h3>"
+            html_table = df.to_html(
+                index=False, table_id=f"results_{class_name.lower()}"
+            )
+            html_content += html_table
 
     message = MIMEMultipart("alternative")
     message["Subject"] = f"美股盘后扫描结果 - {pd.Timestamp.now().strftime('%Y-%m-%d')}"
@@ -242,11 +192,34 @@ def send_email(df_volume_results, df_ma_results):
         print(f"邮件发送失败: {e}")
 
 
+def get_nasdaq_symbols():
+    """
+    从NASDAQ官网下载并解析nasdaqlisted.txt文件，获取股票代码列表。
+    """
+    url = "https://www.nasdaqtrader.com/dynamic/symdir/nasdaqlisted.txt"
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        df = pd.read_csv(io.StringIO(response.text), sep="|")
+        symbols = df["Symbol"].tolist()
+        print(f"成功获取纳斯达克上市股票列表，共 {len(symbols)} 只。")
+        return symbols
+    except requests.exceptions.RequestException as e:
+        print(f"下载股票列表失败: {e}")
+        return []
+    except pd.errors.EmptyDataError:
+        print("下载的文件为空或格式不正确。")
+        return []
+    except Exception as e:
+        print(f"解析股票列表时发生错误: {e}")
+        return []
+
+
 def main():
     """
     主函数
     """
-    # 从NASDAQ官网获取股票代码列表
+
     print("正在下载纳斯达克股票代码列表...")
     stock_symbols = get_nasdaq_symbols()
 
@@ -255,10 +228,10 @@ def main():
         return
 
     print(f"开始扫描 {len(stock_symbols)} 只纳斯达克股票...")
-    results_df_volumes, results_df_mas = scan_stocks(stock_symbols)
+    results_dataframes = scan_stocks(stock_symbols, EXECUTE_STRATEGIES)
 
     print("扫描完成，正在发送邮件...")
-    send_email(results_df_volumes, results_df_mas)
+    send_email(results_dataframes)
     print("脚本执行完毕。")
 
 

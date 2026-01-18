@@ -18,7 +18,7 @@ jobs:
   run-script:
     # 指定运行环境
     runs-on: ubuntu-latest
-    environment: scan_env 
+    environment: scan_env
 
     steps:
     # 步骤1: 检出仓库代码

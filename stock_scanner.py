@@ -60,6 +60,14 @@ def preprocess_data(hist_data, all_required_columns):
         hist_data["Simulated_Delta"] = hist_data["Price_Change"] * hist_data["Volume"]
         hist_data["Cumulative_Simulated_Delta"] = hist_data["Simulated_Delta"].cumsum()
 
+    # MACD 计算 (12, 26, 9)
+    if any(col in all_required_columns for col in ['MACD_DIF', 'MACD_DEA', 'MACD_Histogram']):
+        exp1 = hist_data['Close'].ewm(span=12, adjust=False).mean()
+        exp2 = hist_data['Close'].ewm(span=26, adjust=False).mean()
+        hist_data['MACD_DIF'] = exp1 - exp2
+        hist_data['MACD_DEA'] = hist_data['MACD_DIF'].ewm(span=9, adjust=False).mean()
+        hist_data['MACD_Histogram'] = hist_data['MACD_DIF'] - hist_data['MACD_DEA']
+
     return hist_data
 
 
@@ -201,7 +209,13 @@ def get_nasdaq_symbols():
         response = requests.get(url)
         response.raise_for_status()
         df = pd.read_csv(io.StringIO(response.text), sep="|")
-        symbols = df["Symbol"].tolist()
+
+        # 过滤 Symbol 列为 nan 的行
+        df_cleaned = df.dropna(subset=['Symbol'])
+        # 过滤 Symbol 列为空字符串或只包含空白字符的行
+        df_cleaned = df_cleaned[df_cleaned['Symbol'].str.strip().ne('')]
+
+        symbols = df_cleaned['Symbol'].tolist()
         print(f"成功获取纳斯达克上市股票列表，共 {len(symbols)} 只。")
         return symbols
     except requests.exceptions.RequestException as e:

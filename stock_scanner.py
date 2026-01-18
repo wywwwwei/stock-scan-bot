@@ -6,6 +6,7 @@ import pandas as pd
 import requests
 import io
 import os
+import time
 import yfinance as yf
 from strategy import *
 
@@ -115,6 +116,8 @@ def scan_single_stock(ticker, strategies):
                 print(f"发现 {strategy.get_name()} 信号股票: {ticker}")
         except Exception as e:
             print(f"执行 {strategy.get_name()} 策略时，处理股票 {ticker} 出错: {e}")
+
+    time.sleep(0.5)
 
     return results
 

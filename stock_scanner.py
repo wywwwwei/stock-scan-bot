@@ -25,12 +25,26 @@ if not SENDER_PASSWORD:
 if not RECIPIENT_EMAIL:
     raise ValueError("环境变量 'RECIPIENT_EMAIL' 未设置")
 
-# 2. 定义要执行的策略
+# 2. 定义默认要执行的策略
 EXECUTE_STRATEGIES = [
     VolumeSurgeStrategy(),
     MACrossStrategy(),
     CDSignalStrategy(),
 ]
+
+# 3. 目标股票列表。留空([])则扫描所有股票。
+TARGET_STOCKS = [
+    # "AAPL", "MSFT", "GOOGL" # 示例：只扫描这几只股票
+    # 如果列表为空，则扫描所有股票
+]
+
+# 2. 为特定股票指定策略。key为股票代码，value为策略实例列表。
+# 如果股票不在这个映射中，则使用 EXECUTE_STRATEGIES
+STOCK_STRATEGY_MAP = {
+    # "AAPL": [VolumeSurgeStrategy()], # AAPL只扫描成交量
+    # "MSFT": [MACrossStrategy(), CDSignalStrategy()], # MSFT扫描均线和CD
+    # "ZYME": [CDSignalStrategy()], # ZYME只扫描CD
+}
 
 # --- 配置区域结束 ---
 
@@ -62,12 +76,15 @@ def preprocess_data(hist_data, all_required_columns):
         hist_data["Cumulative_Simulated_Delta"] = hist_data["Simulated_Delta"].cumsum()
 
     # MACD 计算 (12, 26, 9)
-    if any(col in all_required_columns for col in ['MACD_DIF', 'MACD_DEA', 'MACD_Histogram']):
-        exp1 = hist_data['Close'].ewm(span=12, adjust=False).mean()
-        exp2 = hist_data['Close'].ewm(span=26, adjust=False).mean()
-        hist_data['MACD_DIF'] = exp1 - exp2
-        hist_data['MACD_DEA'] = hist_data['MACD_DIF'].ewm(span=9, adjust=False).mean()
-        hist_data['MACD_Histogram'] = hist_data['MACD_DIF'] - hist_data['MACD_DEA']
+    if any(
+        col in all_required_columns
+        for col in ["MACD_DIF", "MACD_DEA", "MACD_Histogram"]
+    ):
+        exp1 = hist_data["Close"].ewm(span=12, adjust=False).mean()
+        exp2 = hist_data["Close"].ewm(span=26, adjust=False).mean()
+        hist_data["MACD_DIF"] = exp1 - exp2
+        hist_data["MACD_DEA"] = hist_data["MACD_DIF"].ewm(span=9, adjust=False).mean()
+        hist_data["MACD_Histogram"] = hist_data["MACD_DIF"] - hist_data["MACD_DEA"]
 
     return hist_data
 
@@ -75,6 +92,8 @@ def preprocess_data(hist_data, all_required_columns):
 def scan_single_stock(ticker, strategies):
     """
     对单个股票执行所有策略扫描。
+    :param ticker: 股票代码
+    :param strategies: 要执行的策略列表
     """
 
     stock = yf.Ticker(ticker)
@@ -122,15 +141,21 @@ def scan_single_stock(ticker, strategies):
     return results
 
 
-def scan_stocks(stock_list, strategies):
+def scan_stocks(stock_list, stock_strategy_map):
     """
     遍历股票列表，执行所有策略扫描。
+    :param stock_list: 要扫描的股票列表
+    :param stock_strategy_map: {股票代码: [策略实例列表]}
     """
-    all_results = {strategy.get_name(): [] for strategy in strategies}
+    all_possible_strategies = set(EXECUTE_STRATEGIES)
+    for strategy_list in stock_strategy_map.values():
+        all_possible_strategies.update(strategy_list)
+    all_results = {strategy.get_name(): [] for strategy in all_possible_strategies}
 
     for ticker in stock_list:
         try:
-            stock_results = scan_single_stock(ticker, strategies)
+            specific_strategies = stock_strategy_map.get(ticker, EXECUTE_STRATEGIES)
+            stock_results = scan_single_stock(ticker, specific_strategies)
             for strategy_class, results_list in stock_results.items():
                 all_results[strategy_class].extend(results_list)
         except Exception as e:
@@ -138,7 +163,7 @@ def scan_stocks(stock_list, strategies):
 
     # 排序
     dataframes = {}
-    for strategy in strategies:
+    for strategy in all_possible_strategies:
         class_name = strategy.get_name()
         df = pd.DataFrame(all_results[class_name])
         if not df.empty:
@@ -214,11 +239,11 @@ def get_nasdaq_symbols():
         df = pd.read_csv(io.StringIO(response.text), sep="|")
 
         # 过滤 Symbol 列为 nan 的行
-        df_cleaned = df.dropna(subset=['Symbol'])
+        df_cleaned = df.dropna(subset=["Symbol"])
         # 过滤 Symbol 列为空字符串或只包含空白字符的行
-        df_cleaned = df_cleaned[df_cleaned['Symbol'].str.strip().ne('')]
+        df_cleaned = df_cleaned[df_cleaned["Symbol"].str.strip().ne("")]
 
-        symbols = df_cleaned['Symbol'].tolist()
+        symbols = df_cleaned["Symbol"].tolist()
         print(f"成功获取纳斯达克上市股票列表，共 {len(symbols)} 只。")
         return symbols
     except requests.exceptions.RequestException as e:
@@ -244,8 +269,20 @@ def main():
         print("无法获取股票列表，脚本终止。")
         return
 
-    print(f"开始扫描 {len(stock_symbols)} 只纳斯达克股票...")
-    results_dataframes = scan_stocks(stock_symbols, EXECUTE_STRATEGIES)
+    if TARGET_STOCKS:
+        # 如果 TARGET_STOCKS 不为空，则只扫描列表中的股票
+        print(f"使用目标股票列表，共 {len(TARGET_STOCKS)} 只。")
+        # 过滤掉不在总列表中的股票代码
+        valid_target_stocks = [sym for sym in TARGET_STOCKS if sym in stock_symbols]
+        print(f"过滤后，有效目标股票 {len(valid_target_stocks)} 只。")
+        stock_symbols_to_scan = valid_target_stocks
+    else:
+        # 如果 TARGET_STOCKS 为空，则扫描所有股票
+        print(f"TARGET_STOCKS 为空，将扫描所有 {len(stock_symbols)} 只股票。")
+        stock_symbols_to_scan = stock_symbols
+
+    print(f"开始扫描 {len(stock_symbols_to_scan)} 只纳斯达克股票...")
+    results_dataframes = scan_stocks(stock_symbols_to_scan, STOCK_STRATEGY_MAP)
 
     print("扫描完成，正在发送邮件...")
     send_email(results_dataframes)

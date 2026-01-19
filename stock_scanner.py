@@ -117,7 +117,7 @@ def scan_single_stock(ticker, strategies):
         except Exception as e:
             print(f"执行 {strategy.get_name()} 策略时，处理股票 {ticker} 出错: {e}")
 
-    time.sleep(0.5)
+    time.sleep(0.2)
 
     return results
 

@@ -38,7 +38,7 @@ TARGET_STOCKS = [
     # 如果列表为空，则扫描所有股票
 ]
 
-# 2. 为特定股票指定策略。key为股票代码，value为策略实例列表。
+# 4. 为特定股票指定策略。key为股票代码，value为策略实例列表。
 # 如果股票不在这个映射中，则使用 EXECUTE_STRATEGIES
 STOCK_STRATEGY_MAP = {
     # "AAPL": [VolumeSurgeStrategy()], # AAPL只扫描成交量

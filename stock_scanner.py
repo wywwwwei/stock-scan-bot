@@ -9,6 +9,8 @@ import os
 import time
 import yfinance as yf
 from strategy import *
+from rate_limiter import *
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # --- 配置区域 ---
 
@@ -47,6 +49,28 @@ STOCK_STRATEGY_MAP = {
 }
 
 # --- 配置区域结束 ---
+
+# ===== yfinance 全局限流 =====
+YF_RATE_LIMITER = RateLimiter(max_calls=10, period=1.0)
+
+
+def safe_history(ticker, period):
+    """
+    安全地获取股票历史行情数据（统一入口）
+
+    所有对 yf.Ticker().history 的调用必须通过此函数，
+    以确保全局限流策略生效，避免触发 Yahoo Finance 的反爬机制。
+
+    :param ticker: 股票代码（如 'AAPL'）
+    :param period: yfinance 支持的时间区间字符串（如 '30d'）
+    :return: 包含历史行情的 DataFrame；失败时返回空 DataFrame
+    """
+    try:
+        YF_RATE_LIMITER.acquire()
+        return yf.Ticker(ticker).history(period=period)
+    except Exception as e:
+        print(f"[yfinance异常] {ticker}: {e}")
+        return pd.DataFrame()
 
 
 def get_all_required_data_columns(strategies):
@@ -89,36 +113,58 @@ def preprocess_data(hist_data, all_required_columns):
     return hist_data
 
 
-def scan_single_stock(ticker, strategies):
+def fetch_all_histories(
+    stock_list: list, stock_strategy_map: dict, default_strategies: list
+) -> dict:
     """
-    对单个股票执行所有策略扫描。
+    阶段 1：按股票所需策略拉取历史行情数据（受控、低频）
+
+    :param stock_list: 待扫描的股票代码列表
+    :param stock_strategy_map: { ticker: [策略实例列表] }
+    :param default_strategies: 默认策略列表（EXECUTE_STRATEGIES）
+    :return: { ticker: 历史行情 DataFrame }
+    """
+    print("阶段 1：开始拉取历史数据（限流）...")
+
+    all_histories = {}
+
+    for i, ticker in enumerate(stock_list, 1):
+        # 计算该股票所需的最大历史天数
+        strategies = stock_strategy_map.get(ticker, default_strategies)
+        max_days_needed = max(strategy.get_required_days() for strategy in strategies)
+
+        hist = safe_history(ticker, period=f"{max_days_needed + 10}d")
+        if hist is not None and not hist.empty:
+            all_histories[ticker] = hist
+        else:
+            print(f"[跳过] {ticker} 无历史数据")
+
+    print(f"历史数据拉取完成，共 {len(all_histories)} 只股票")
+    return all_histories
+
+
+def scan_single_stock_from_df(ticker, hist_data_raw, strategies):
+    """
+    阶段 2：基于已获取的历史数据执行策略扫描（纯计算）
+
+    ⚠️ 本函数不允许调用任何 yfinance 接口
+
     :param ticker: 股票代码
-    :param strategies: 要执行的策略列表
+    :param hist_data_raw: 阶段 1 拉取的原始历史行情数据
+    :param strategies: 需要执行的策略实例列表
+    :return: { strategy_name: [格式化后的结果 dict, ...] }
     """
 
-    stock = yf.Ticker(ticker)
-    # 获取所有策略需要的最大天数的历史数据
-    max_days_needed = max(strategy.get_required_days() for strategy in strategies)
-    hist_data_raw = stock.history(period=f"{max_days_needed + 10}d")
-
-    if hist_data_raw is None or hist_data_raw.empty:
-        print(f"警告: {ticker} 的原始历史数据为空或获取失败，跳过。")
-        return {}
-
+    # 汇总所有策略所需的数据列, 根据策略需求对历史数据进行预处理（如 MA / MACD 等）
     all_required_cols = get_all_required_data_columns(strategies)
     hist_data_processed = preprocess_data(hist_data_raw.copy(), all_required_cols)
 
-    if hist_data_processed is None or hist_data_processed.empty:
-        print(f"警告: {ticker} 的预处理数据为空，跳过。")
-        return {}
-
     results = {}
+
     for strategy in strategies:
         days_needed = strategy.get_required_days()
 
         if len(hist_data_processed) < days_needed:
-            # print(f"警告: {ticker} 的数据不足以执行 {strategy.get_name()} 策略 (需要{days_needed}天, 有{len(hist_data_processed)}天)。")
-            # 如果数据不够，继续下一个策略，而不是跳过整个股票
             continue
 
         strategy_past_data = hist_data_processed.iloc[-days_needed:-1]
@@ -129,37 +175,58 @@ def scan_single_stock(ticker, strategies):
                 formatted_result = strategy.format_result(
                     ticker, strategy_data_row, strategy_past_data
                 )
-                if strategy.get_name() not in results:
-                    results[strategy.get_name()] = []
-                results[strategy.get_name()].append(formatted_result)
+                results.setdefault(strategy.get_name(), []).append(formatted_result)
                 print(f"发现 {strategy.get_name()} 信号股票: {ticker}")
         except Exception as e:
-            print(f"执行 {strategy.get_name()} 策略时，处理股票 {ticker} 出错: {e}")
-
-    time.sleep(0.2)
+            print(f"[策略异常] {ticker} {strategy.get_name()}: {e}")
 
     return results
 
 
-def scan_stocks(stock_list, stock_strategy_map):
+def scan_stocks_stage2_concurrent(
+    all_histories: dict,
+    stock_strategy_map: dict,
+    default_strategies: list,
+    max_workers: int = 10,
+) -> dict:
     """
-    遍历股票列表，执行所有策略扫描。
-    :param stock_list: 要扫描的股票列表
-    :param stock_strategy_map: {股票代码: [策略实例列表]}
+    阶段 2：并发执行策略扫描
+
+    :param all_histories: { ticker: 历史行情 DataFrame }
+    :param stock_strategy_map: { ticker: [策略实例列表] }
+    :param default_strategies: EXECUTE_STRATEGIES
+    :param max_workers: 并发线程数
+    :return: { strategy_name: 排序后的 DataFrame }
     """
+
+    print("阶段 2：开始并发执行策略扫描...")
+
     all_possible_strategies = set(EXECUTE_STRATEGIES)
     for strategy_list in stock_strategy_map.values():
         all_possible_strategies.update(strategy_list)
+
     all_results = {strategy.get_name(): [] for strategy in all_possible_strategies}
 
-    for ticker in stock_list:
-        try:
-            specific_strategies = stock_strategy_map.get(ticker, EXECUTE_STRATEGIES)
-            stock_results = scan_single_stock(ticker, specific_strategies)
-            for strategy_class, results_list in stock_results.items():
-                all_results[strategy_class].extend(results_list)
-        except Exception as e:
-            print(f"处理股票 {ticker} 时出错: {e}")
+    def task(ticker, hist):
+        """
+        单股票扫描任务（供线程池调用）
+        """
+        strategies = stock_strategy_map.get(ticker, default_strategies)
+        return scan_single_stock_from_df(ticker, hist, strategies)
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(task, ticker, hist): ticker
+            for ticker, hist in all_histories.items()
+        }
+
+        for future in as_completed(futures):
+            try:
+                stock_results = future.result()
+                for strategy_name, results_list in stock_results.items():
+                    all_results[strategy_name].extend(results_list)
+            except Exception as e:
+                print(f"[并发异常] {e}")
 
     # 排序
     dataframes = {}
@@ -282,7 +349,16 @@ def main():
         stock_symbols_to_scan = stock_symbols
 
     print(f"开始扫描 {len(stock_symbols_to_scan)} 只纳斯达克股票...")
-    results_dataframes = scan_stocks(stock_symbols_to_scan, STOCK_STRATEGY_MAP)
+
+    # 阶段 1：拉数据
+    all_histories = fetch_all_histories(
+        stock_symbols_to_scan, STOCK_STRATEGY_MAP, EXECUTE_STRATEGIES
+    )
+
+    # 阶段 2：并发算策略
+    results_dataframes = scan_stocks_stage2_concurrent(
+        all_histories, STOCK_STRATEGY_MAP, EXECUTE_STRATEGIES, max_workers=10
+    )
 
     print("扫描完成，正在发送邮件...")
     send_email(results_dataframes)

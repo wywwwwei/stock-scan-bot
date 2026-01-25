@@ -67,7 +67,7 @@ class MyCustomStrategy(BaseStrategy):
 
 ### 2. 新增扫描股票
 
-可以配置机器人只扫描特定的股票代码。
+可以配置机器人只扫描特定的股票代码，配置文件路径 `./scanner/config/scan.py`。
 
 1. **编辑 `TARGET_STOCKS` 列表：** 在 配置区域部分找到 `TARGET_STOCKS`。
 2. **添加股票代码：** 将想扫描的股票代码字符串添加到列表中。
@@ -87,7 +87,7 @@ TARGET_STOCKS = [
 
 ### 3. 新增不同股票扫描不同策略
 
-可以为不同的股票配置不同的扫描策略组合。
+可以为不同的股票配置不同的扫描策略组合，配置文件路径 `./scanner/config/scan.py`。
 
 1. **编辑 `STOCK_STRATEGY_MAP` 字典：** 在配置区域部分找到 `STOCK_STRATEGY_MAP`。
 2. **配置映射关系：** 以股票代码为键，以该股票要执行的**策略实例列表**为值。
@@ -105,7 +105,17 @@ STOCK_STRATEGY_MAP = {
 
 - **注意：** 如果某只股票的代码不在 `STOCK_STRATEGY_MAP` 中，机器人将为其执行 `EXECUTE_STRATEGIES` 中定义的全局默认策略。
 
+### 4. 配置并发与速率
+
+配置文件路径 `./scanner/config/scan.py`
+
+1. **编辑 `SCAN_MAX_WORKERS`**：配置最大并发线程数
+2. **编辑 `YF_MAX_CALLS_PER_SEC`：** 配置 Yahoo Finance API 的最大请求速率，避免频繁的 API 错误。
+
+```
+
+```
+
 ## 注意事项
 
 - 机器人目前仅支持扫描纳斯达克交易所的股票。如需扫描 NYSE 或 AMEX，需修改 `get_nasdaq_symbols` 函数以获取完整的股票列表。
-- Yahoo Finance 的 API 可能有限速，脚本中已加入 `time.sleep` 延时以缓解此问题。如果仍频繁遇到 `Too Many Requests` 错误，可适当增加延时时间。

@@ -25,7 +25,6 @@ class MACrossStrategy(BaseStrategy):
 
     def get_required_fields(self) -> list[FieldKey]:
         return [
-            FieldKey.CLOSE,
             FieldKey.DOLLAR_VOLUME,
             FieldKey.MA5,
             FieldKey.MA10,

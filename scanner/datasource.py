@@ -12,7 +12,9 @@ class YahooFinanceDataSource:
     """
 
     def __init__(self, max_calls_per_sec: int):
-        self._limiter = RateLimiter(max_calls_per_sec, 1.0)
+         # 平滑限流：每 (1/max_calls_per_sec) 秒放行 1 次请求
+        self._limiter = RateLimiter(1, 1.0 / max_calls_per_sec)
+
 
     def history(self, ticker: str, days: int) -> pd.DataFrame:
         """

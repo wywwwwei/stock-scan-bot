@@ -12,6 +12,12 @@ class RequestStats:
     """
 
     def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        """
+        重置所有统计数据。
+        """
         self.total_calls: int = 0
         self.failed_calls: int = 0
 
@@ -64,3 +70,31 @@ class RequestStats:
             "max_request_ms": self.max_request_time * 1000,
             "max_total_ms": self.max_total_time * 1000,
         }
+
+    def print_summary(self, title: str | None = None) -> None:
+        """
+        以可读形式打印统计摘要。
+
+        :param title: 可选标题，例如 "Prefilter" / "Fetch Histories"
+        """
+        if title:
+            print("\n" + "=" * 60)
+            print(f"📊 {title} Request Stats")
+            print("=" * 60)
+
+        stats = self.summary()
+        if not stats:
+            print("[STATS] no requests recorded")
+            return
+
+        print(
+            f"Total Calls      : {stats['total_calls']}\n"
+            f"Failed Calls    : {stats['failed_calls']} "
+            f"({stats['failure_rate'] * 100:.1f}%)\n"
+            f"Avg Wait Time   : {stats['avg_wait_ms']:.1f} ms\n"
+            f"Avg Request Time: {stats['avg_request_ms']:.1f} ms\n"
+            f"Avg Total Time  : {stats['avg_total_ms']:.1f} ms\n"
+            f"Max Wait Time   : {stats['max_wait_ms']:.1f} ms\n"
+            f"Max Request Time: {stats['max_request_ms']:.1f} ms\n"
+            f"Max Total Time  : {stats['max_total_ms']:.1f} ms"
+        )

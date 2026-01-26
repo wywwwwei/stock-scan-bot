@@ -14,28 +14,20 @@ def main() -> None:
         print("[ERROR] 股票池为空，程序终止")
         return
 
+    # ===== Prefilter 耗时统计 =====
+    datasource.stats.print_summary("Prefilter")
+    # 重置 stats
+    datasource.stats.reset()
+
     scanner = StockScanner(
         datasource=datasource,
         stock_strategy_map=STOCK_STRATEGY_MAP,
         default_strategies=EXECUTE_STRATEGIES,
     )
-
     results, strategy_metadata = scanner.run(stock_symbols, SCAN_MAX_WORKERS)
 
-    # ===== 耗时统计 =====
-    stats = datasource.stats.summary()
-    if stats:
-        print(
-            f"Total Calls      : {stats['total_calls']}\n"
-            f"Failed Calls    : {stats['failed_calls']} "
-            f"({stats['failure_rate'] * 100:.1f}%)\n"
-            f"Avg Wait Time   : {stats['avg_wait_ms']:.1f} ms\n"
-            f"Avg Request Time: {stats['avg_request_ms']:.1f} ms\n"
-            f"Avg Total Time  : {stats['avg_total_ms']:.1f} ms\n"
-            f"Max Wait Time   : {stats['max_wait_ms']:.1f} ms\n"
-            f"Max Request Time: {stats['max_request_ms']:.1f} ms\n"
-            f"Max Total Time  : {stats['max_total_ms']:.1f} ms"
-        )
+    # ===== Run 耗时统计 =====
+    datasource.stats.print_summary("Run")
 
     # ===== 控制台输出 =====
     text = format_results_text(results, strategy_metadata)

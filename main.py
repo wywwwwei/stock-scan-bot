@@ -24,6 +24,21 @@ def main() -> None:
 
     results, strategy_metadata = scanner.run(stock_symbols, SCAN_MAX_WORKERS)
 
+    # ===== 耗时统计 =====
+    stats = datasource.stats.summary()
+    if stats:
+        print(
+            f"Total Calls      : {stats['total_calls']}\n"
+            f"Failed Calls    : {stats['failed_calls']} "
+            f"({stats['failure_rate'] * 100:.1f}%)\n"
+            f"Avg Wait Time   : {stats['avg_wait_ms']:.1f} ms\n"
+            f"Avg Request Time: {stats['avg_request_ms']:.1f} ms\n"
+            f"Avg Total Time  : {stats['avg_total_ms']:.1f} ms\n"
+            f"Max Wait Time   : {stats['max_wait_ms']:.1f} ms\n"
+            f"Max Request Time: {stats['max_request_ms']:.1f} ms\n"
+            f"Max Total Time  : {stats['max_total_ms']:.1f} ms"
+        )
+
     # ===== 控制台输出 =====
     text = format_results_text(results, strategy_metadata)
     print(text)

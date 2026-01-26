@@ -60,4 +60,4 @@ PREFILTER_MAX_LOOKBACK_DAYS = 30
 SCAN_MAX_WORKERS: int = 10
 
 # ===== yfinance 限流参数 =====
-YF_MAX_CALLS_PER_SEC: int = 1
+YF_MAX_CALLS_PER_SEC: int = 3

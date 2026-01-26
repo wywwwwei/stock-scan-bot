@@ -14,8 +14,6 @@ def main() -> None:
         print("[ERROR] 股票池为空，程序终止")
         return
 
-    datasource = YahooFinanceDataSource(YF_MAX_CALLS_PER_SEC)
-
     scanner = StockScanner(
         datasource=datasource,
         stock_strategy_map=STOCK_STRATEGY_MAP,

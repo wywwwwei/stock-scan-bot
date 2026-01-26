@@ -48,11 +48,11 @@ TARGET_STOCKS: List[str] = [
 # 仅用于“是否值得进一步扫描”的粗过滤。
 #
 PREFILTERS = [
-    LiquidityAndPriceFilter(
-        min_avg_dollar_volume=3_000_000,  # 最近 N 天平均成交额不少于 300 万美元
-        min_close_price=0.5,  # 最新收盘价不少于 0.5 美元
-        lookback_days=10,  # 用于计算平均成交额的回看天数，不能超过PREFILTER_MAX_LOOKBACK_DAYS
-    )
+    # LiquidityAndPriceFilter(
+    #     min_avg_dollar_volume=3_000_000,  # 最近 N 天平均成交额不少于 300 万美元
+    #     min_close_price=0.5,  # 最新收盘价不少于 0.5 美元
+    #     lookback_days=10,  # 用于计算平均成交额的回看天数，不能超过PREFILTER_MAX_LOOKBACK_DAYS
+    # )
 ]
 PREFILTER_MAX_LOOKBACK_DAYS = 30
 

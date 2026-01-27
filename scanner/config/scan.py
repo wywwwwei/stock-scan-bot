@@ -39,6 +39,12 @@ TARGET_STOCKS: List[str] = [
 # - Prefilter 只在 TARGET_STOCKS 为空时生效
 # - 如果用户显式指定了 TARGET_STOCKS，将完全跳过 Prefilter
 
+# Prefilter 开关
+# 是否在扫描「全量 NASDAQ」时启用 Prefilter
+# - True : 启用（默认，推荐）
+# - False: 完全关闭，直接扫描全量 NASDAQ
+ENABLE_PREFILTER: bool = True
+
 # 最低单日成交额（美元）
 # 用于剔除：
 # - 流动性极差的股票

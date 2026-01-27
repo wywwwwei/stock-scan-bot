@@ -5,7 +5,11 @@ import io
 
 from scanner.datasource import YahooFinanceDataSource
 from scanner.fields import FieldKey
-from scanner.config.scan import PREFILTER_MIN_CLOSE_PRICE, PREFILTER_MIN_DOLLAR_VOLUME
+from scanner.config.scan import (
+    ENABLE_PREFILTER,
+    PREFILTER_MIN_CLOSE_PRICE,
+    PREFILTER_MIN_DOLLAR_VOLUME,
+)
 
 NASDAQ_LIST_URL = "https://www.nasdaqtrader.com/dynamic/symdir/nasdaqlisted.txt"
 
@@ -60,8 +64,10 @@ def resolve_stock_universe(
        - 仅扫描其中存在于 NASDAQ 的股票
        - 不应用 Prefilter（完全尊重用户显式选择）
     2. 若 TARGET_STOCKS 为空：
-       - 使用全量 NASDAQ 股票
-       - 应用基础 Prefilter 自动收缩股票池
+       - 若 ENABLE_PREFILTER=True：
+           使用全量 NASDAQ + Prefilter
+       - 若 ENABLE_PREFILTER=False：
+           直接扫描全量 NASDAQ
 
     :param target_stocks: 用户显式指定的股票列表
     :param datasource: YahooFinance 数据源（用于 Prefilter）
@@ -80,7 +86,14 @@ def resolve_stock_universe(
         print(f"[INFO] 过滤后有效股票 {len(valid)} / {len(target_stocks)}")
         return valid
 
-    # ===== 全量 NASDAQ + Prefilter =====
+    # ===== 全量 NASDAQ（是否启用 Prefilter）=====
+    if not ENABLE_PREFILTER:
+        print(
+            "[INFO] TARGET_STOCKS 为空，但已关闭 Prefilter，"
+            f"将直接扫描全量 NASDAQ（{len(all_symbols)} 只）"
+        )
+        return all_symbols
+
     return build_universe_with_prefilter(all_symbols, datasource)
 
 

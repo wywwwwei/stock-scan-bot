@@ -4,8 +4,8 @@ import pandas as pd
 import io
 
 from scanner.datasource import YahooFinanceDataSource
-from scanner.prefilters.prefilter import StockPreFilter
-from scanner.config.scan import PREFILTER_MAX_LOOKBACK_DAYS
+from scanner.fields import FieldKey
+from scanner.config.scan import PREFILTER_MIN_CLOSE_PRICE, PREFILTER_MIN_DOLLAR_VOLUME
 
 NASDAQ_LIST_URL = "https://www.nasdaqtrader.com/dynamic/symdir/nasdaqlisted.txt"
 
@@ -50,9 +50,7 @@ def get_nasdaq_symbols() -> List[str]:
 
 
 def resolve_stock_universe(
-    target_stocks: List[str],
-    datasource: YahooFinanceDataSource,
-    prefilters: List[StockPreFilter],
+    target_stocks: List[str], datasource: YahooFinanceDataSource
 ) -> List[str]:
     """
     构建最终扫描股票池（Universe）。
@@ -60,14 +58,13 @@ def resolve_stock_universe(
     规则：
     1. 若 TARGET_STOCKS 非空：
        - 仅扫描其中存在于 NASDAQ 的股票
-       - 不应用 Prefilter（完全尊重用户选择）
+       - 不应用 Prefilter（完全尊重用户显式选择）
     2. 若 TARGET_STOCKS 为空：
        - 使用全量 NASDAQ 股票
-       - 应用 Prefilter 自动收缩股票池
+       - 应用基础 Prefilter 自动收缩股票池
 
     :param target_stocks: 用户显式指定的股票列表
-    :param datasource: 数据源（用于 Prefilter）
-    :param prefilters: Prefilter 列表（仅在扫描全体 NASDAQ 时生效）
+    :param datasource: YahooFinance 数据源（用于 Prefilter）
     :return: 最终用于扫描的股票列表
     """
     all_symbols = get_nasdaq_symbols()
@@ -76,52 +73,110 @@ def resolve_stock_universe(
         print("[ERROR] 无法获取 NASDAQ 股票列表，终止扫描")
         return []
 
+    # ===== 用户显式指定股票（不应用 Prefilter）=====
     if target_stocks:
         print(f"[INFO] 使用 TARGET_STOCKS，共 {len(target_stocks)} 只")
         valid = [s for s in target_stocks if s in all_symbols]
         print(f"[INFO] 过滤后有效股票 {len(valid)} / {len(target_stocks)}")
         return valid
 
-    filtered_symbols = apply_prefilters(all_symbols, datasource, prefilters)
-    return filtered_symbols
+    # ===== 全量 NASDAQ + Prefilter =====
+    return build_universe_with_prefilter(all_symbols, datasource)
 
 
-def apply_prefilters(
-    symbols: List[str],
-    datasource: YahooFinanceDataSource,
-    prefilters: List[StockPreFilter],
+def build_universe_with_prefilter(
+    all_symbols: List[str], datasource: YahooFinanceDataSource
 ) -> List[str]:
     """
-    对股票池应用 Prefilter，仅用于扫描“全体 NASDAQ”的场景。
+    基于全量 NASDAQ 股票列表，应用基础 Prefilter 构建扫描股票池。
 
-    :param symbols: 初始股票池（通常为全量 NASDAQ）
-    :param datasource: 数据源，用于获取少量历史数据
-    :param prefilters: Prefilter 实例列表
-    :return: 通过 Prefilter 的股票列表
+    设计说明：
+    - Prefilter 与 run 阶段共用 YahooFinanceDataSource
+    - 使用 RateLimiter 控制整体请求速率
+    - Prefilter 只使用「最近一个已完成交易日」
+    - 目标是以最小成本，显著缩小后续扫描规模
     """
-    if not prefilters:
-        print("[INFO] 未配置 PREFILTERS，跳过预过滤")
-        return symbols
 
-    kept: List[str] = []
+    print("[INFO] TARGET_STOCKS 为空，将扫描全量 NASDAQ，并应用 Prefilter")
+    print(
+        f"[INFO] Prefilter 条件："
+        f"最低成交额={PREFILTER_MIN_DOLLAR_VOLUME:,.0f} USD，"
+        f"最低收盘价={PREFILTER_MIN_CLOSE_PRICE}"
+    )
 
-    print(f"[INFO] 开始应用 Prefilter，初始股票数={len(symbols)}")
+    filtered: List[str] = []
+    total = len(all_symbols)
 
-    for idx, symbol in enumerate(symbols, start=1):
-        try:
-            df: pd.DataFrame = datasource.history(
-                symbol,
-                days=PREFILTER_MAX_LOOKBACK_DAYS,
-            )
+    for idx, symbol in enumerate(all_symbols, start=1):
+        df = datasource.history(symbol, days=2)
+        bar = extract_last_completed_bar(df)
+        if bar is None:
+            continue
 
-            if all(p.filter(symbol, df) for p in prefilters):
-                kept.append(symbol)
+        if passes_basic_prefilter(
+            df.iloc[-1],
+            PREFILTER_MIN_DOLLAR_VOLUME,
+            PREFILTER_MIN_CLOSE_PRICE,
+        ):
+            filtered.append(symbol)
 
-        except Exception as e:
-            print(f"[WARN] Prefilter 跳过 {symbol}: {e}")
+        if idx % 100 == 0 or idx == total:
+            print(f"[INFO] Prefilter 进度 {idx}/{total}")
 
-        if idx % 100 == 0:
-            print(f"[INFO] Prefilter 进度 {idx}/{len(symbols)}")
+    print(f"[INFO] Prefilter 完成，通过 {len(filtered)} / {total} 只股票")
+    if not filtered:
+        print("[WARN] Prefilter 后股票池为空，请检查过滤条件是否过严")
 
-    print(f"[INFO] Prefilter 完成，通过 {len(kept)} / {len(symbols)} 只股票")
-    return kept
+    datasource.stats.print_summary("Prefilter")
+    datasource.stats.reset()
+
+    return filtered
+
+
+def extract_last_completed_bar(df: pd.DataFrame) -> pd.Series | None:
+    """
+    从 YahooFinance 返回的 DataFrame 中提取
+    「最近一个已完成交易日」的 bar。
+
+    规则：
+    - 至少需要 2 行数据
+    - 始终取倒数第二行
+    """
+
+    if df is None or df.empty:
+        return None
+
+    # 至少要有 2 天，才能保证上一交易日存在
+    if len(df) < 2:
+        return None
+
+    return df.iloc[-2]
+
+
+def passes_basic_prefilter(
+    bar: pd.Series,
+    min_dollar_volume: float,
+    min_close_price: float,
+) -> bool:
+    """
+    基础流动性 / 价格预过滤（单日级别）。
+
+    使用约定：
+    - bar 必须是「最近一个已完成交易日」
+    - 不使用盘中或未收盘数据
+    - 不计算任何技术指标
+    """
+
+    if bar is None or bar.empty:
+        return False
+
+    close = bar[FieldKey.CLOSE.value]
+    volume = bar[FieldKey.VOLUME.value]
+
+    if close < min_close_price:
+        return False
+
+    if close * volume < min_dollar_volume:
+        return False
+
+    return True

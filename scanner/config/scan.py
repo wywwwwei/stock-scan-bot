@@ -49,15 +49,15 @@ ENABLE_PREFILTER: bool = True
 # 用于剔除：
 # - 流动性极差的股票
 # - 几乎没有交易的壳股 / 僵尸股
-PREFILTER_MIN_DOLLAR_VOLUME = 1_000_000
+PREFILTER_MIN_DOLLAR_VOLUME = 2_000_000
 # 最低收盘价
 # 用于剔除：
 # - 仙股（Penny Stocks），长期小于1可能有退市风险
 # - 容易出现极端波动 / 数据噪声的标的
-PREFILTER_MIN_CLOSE_PRICE = 0.5
+PREFILTER_MIN_CLOSE_PRICE = 1
 
 # ===== 并发参数 =====
 SCAN_MAX_WORKERS: int = 10
 
 # ===== yfinance 限流参数 =====
-YF_MAX_CALLS_PER_SEC: int = 3
+YF_MAX_CALLS_PER_SEC: int = 4

@@ -4,6 +4,7 @@ import pandas as pd
 import io
 
 from scanner.datasource import YahooFinanceDataSource
+from scanner.prefilter_datasource import YahooBatchPrefilterDataSource
 from scanner.fields import FieldKey
 from scanner.config.scan import (
     ENABLE_PREFILTER,
@@ -117,31 +118,50 @@ def build_universe_with_prefilter(
         f"最低收盘价={PREFILTER_MIN_CLOSE_PRICE}"
     )
 
-    filtered: List[str] = []
-    total = len(all_symbols)
+    datasource = YahooBatchPrefilterDataSource(
+        batch_size=100,
+        sleep_sec=0.5,
+    )
+    bars = datasource.fetch_last_completed_bars(all_symbols)
 
-    for idx, symbol in enumerate(all_symbols, start=1):
-        df = datasource.history(symbol, days=2)
-        bar = extract_last_completed_bar(df)
-        if bar is None:
-            continue
-
+    filtered = [
+        symbol
+        for symbol, bar in bars.items()
         if passes_basic_prefilter(
-            df.iloc[-1],
+            bar,
             PREFILTER_MIN_DOLLAR_VOLUME,
             PREFILTER_MIN_CLOSE_PRICE,
-        ):
-            filtered.append(symbol)
+        )
+    ]
 
-        if idx % 100 == 0 or idx == total:
-            print(f"[INFO] Prefilter 进度 {idx}/{total}")
+    datasource.stats.print_summary("Prefilter (Yahoo Batch)")
 
-    print(f"[INFO] Prefilter 完成，通过 {len(filtered)} / {total} 只股票")
-    if not filtered:
-        print("[WARN] Prefilter 后股票池为空，请检查过滤条件是否过严")
 
-    datasource.stats.print_summary("Prefilter")
-    datasource.stats.reset()
+    # filtered: List[str] = []
+    # total = len(all_symbols)
+
+    # for idx, symbol in enumerate(all_symbols, start=1):
+    #     df = datasource.history(symbol, days=2)
+    #     bar = extract_last_completed_bar(df)
+    #     if bar is None:
+    #         continue
+
+    #     if passes_basic_prefilter(
+    #         bar,
+    #         PREFILTER_MIN_DOLLAR_VOLUME,
+    #         PREFILTER_MIN_CLOSE_PRICE,
+    #     ):
+    #         filtered.append(symbol)
+
+    #     if idx % 100 == 0 or idx == total:
+    #         print(f"[INFO] Prefilter 进度 {idx}/{total}")
+
+    # print(f"[INFO] Prefilter 完成，通过 {len(filtered)} / {total} 只股票")
+    # if not filtered:
+    #     print("[WARN] Prefilter 后股票池为空，请检查过滤条件是否过严")
+
+    # datasource.stats.print_summary("Prefilter")
+    # datasource.stats.reset()
 
     return filtered
 

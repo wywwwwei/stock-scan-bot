@@ -9,7 +9,7 @@ from scanner.formatter import format_results_text, format_results_for_email
 
 def main() -> None:
     datasource = YahooFinanceDataSource(YF_MAX_CALLS_PER_SEC)
-    stock_symbols = resolve_stock_universe(TARGET_STOCKS, datasource)
+    stock_symbols = resolve_stock_universe(TARGET_STOCKS)
     if not stock_symbols:
         print("[ERROR] 股票池为空，程序终止")
         return

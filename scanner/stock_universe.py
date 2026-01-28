@@ -3,7 +3,6 @@ import requests
 import pandas as pd
 import io
 
-from scanner.datasource import YahooFinanceDataSource
 from scanner.prefilter_datasource import YahooBatchPrefilterDataSource
 from scanner.fields import FieldKey
 from scanner.config.scan import (
@@ -54,25 +53,31 @@ def get_nasdaq_symbols() -> List[str]:
         return []
 
 
-def resolve_stock_universe(
-    target_stocks: List[str], datasource: YahooFinanceDataSource
-) -> List[str]:
+def resolve_stock_universe(target_stocks: List[str]) -> List[str]:
     """
     构建最终扫描股票池（Universe）。
 
-    规则：
+    决策规则（按优先级）：
     1. 若 TARGET_STOCKS 非空：
-       - 仅扫描其中存在于 NASDAQ 的股票
-       - 不应用 Prefilter（完全尊重用户显式选择）
-    2. 若 TARGET_STOCKS 为空：
-       - 若 ENABLE_PREFILTER=True：
-           使用全量 NASDAQ + Prefilter
-       - 若 ENABLE_PREFILTER=False：
-           直接扫描全量 NASDAQ
+       - 仅扫描用户显式指定的股票
+       - 只保留其中实际存在于 NASDAQ 的代码
+       - 不应用 Prefilter（完全尊重用户选择）
 
-    :param target_stocks: 用户显式指定的股票列表
-    :param datasource: YahooFinance 数据源（用于 Prefilter）
-    :return: 最终用于扫描的股票列表
+    2. 若 TARGET_STOCKS 为空：
+       - 若 ENABLE_PREFILTER = True：
+           使用「全量 NASDAQ + Prefilter」自动缩小股票池
+       - 若 ENABLE_PREFILTER = False：
+           直接扫描全量 NASDAQ 股票（不做任何预过滤）
+
+    设计说明：
+    - Prefilter 仅用于缩小股票池规模，降低后续扫描成本
+    - Prefilter 不参与任何策略判断
+    - Prefilter 只在“扫描全市场”时生效
+
+    :param target_stocks:
+        用户显式指定的股票列表（可为空）
+    :return:
+        最终用于扫描的股票代码列表
     """
     all_symbols = get_nasdaq_symbols()
 
@@ -95,20 +100,28 @@ def resolve_stock_universe(
         )
         return all_symbols
 
-    return build_universe_with_prefilter(all_symbols, datasource)
+    return build_universe_with_prefilter(all_symbols)
 
 
-def build_universe_with_prefilter(
-    all_symbols: List[str], datasource: YahooFinanceDataSource
-) -> List[str]:
+def build_universe_with_prefilter(all_symbols: List[str]) -> List[str]:
     """
     基于全量 NASDAQ 股票列表，应用基础 Prefilter 构建扫描股票池。
 
     设计说明：
-    - Prefilter 与 run 阶段共用 YahooFinanceDataSource
-    - 使用 RateLimiter 控制整体请求速率
-    - Prefilter 只使用「最近一个已完成交易日」
-    - 目标是以最小成本，显著缩小后续扫描规模
+    - 仅在 TARGET_STOCKS 为空且 ENABLE_PREFILTER=True 时调用
+    - 每只股票仅使用「最近一个已完成交易日」的数据
+    - Prefilter 目标是：
+        用极低的判断成本，显著减少后续 run 阶段的 HTTP 请求数量
+
+    Prefilter 不做的事情：
+    - 不计算技术指标
+    - 不参与策略逻辑
+    - 不保证精确，只保证“足够粗”
+
+    :param all_symbols:
+        全量 NASDAQ 股票代码列表
+    :return:
+        通过 Prefilter 的股票列表
     """
 
     print("[INFO] TARGET_STOCKS 为空，将扫描全量 NASDAQ，并应用 Prefilter")
@@ -119,8 +132,8 @@ def build_universe_with_prefilter(
     )
 
     datasource = YahooBatchPrefilterDataSource(
-        batch_size=100,
-        sleep_sec=0.5,
+        batch_size=25,
+        sleep_sec=0.1,
     )
     bars = datasource.fetch_last_completed_bars(all_symbols)
 
@@ -136,54 +149,7 @@ def build_universe_with_prefilter(
 
     datasource.stats.print_summary("Prefilter (Yahoo Batch)")
 
-
-    # filtered: List[str] = []
-    # total = len(all_symbols)
-
-    # for idx, symbol in enumerate(all_symbols, start=1):
-    #     df = datasource.history(symbol, days=2)
-    #     bar = extract_last_completed_bar(df)
-    #     if bar is None:
-    #         continue
-
-    #     if passes_basic_prefilter(
-    #         bar,
-    #         PREFILTER_MIN_DOLLAR_VOLUME,
-    #         PREFILTER_MIN_CLOSE_PRICE,
-    #     ):
-    #         filtered.append(symbol)
-
-    #     if idx % 100 == 0 or idx == total:
-    #         print(f"[INFO] Prefilter 进度 {idx}/{total}")
-
-    # print(f"[INFO] Prefilter 完成，通过 {len(filtered)} / {total} 只股票")
-    # if not filtered:
-    #     print("[WARN] Prefilter 后股票池为空，请检查过滤条件是否过严")
-
-    # datasource.stats.print_summary("Prefilter")
-    # datasource.stats.reset()
-
     return filtered
-
-
-def extract_last_completed_bar(df: pd.DataFrame) -> pd.Series | None:
-    """
-    从 YahooFinance 返回的 DataFrame 中提取
-    「最近一个已完成交易日」的 bar。
-
-    规则：
-    - 至少需要 2 行数据
-    - 始终取倒数第二行
-    """
-
-    if df is None or df.empty:
-        return None
-
-    # 至少要有 2 天，才能保证上一交易日存在
-    if len(df) < 2:
-        return None
-
-    return df.iloc[-2]
 
 
 def passes_basic_prefilter(

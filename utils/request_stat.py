@@ -4,11 +4,6 @@ from typing import Dict
 class RequestStats:
     """
     简单的请求统计器（无锁版）
-
-    适用于：
-    - 单进程
-    - 轻量并发
-    - 调试 / 日志用途
     """
 
     def __init__(self) -> None:

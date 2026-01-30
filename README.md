@@ -9,6 +9,8 @@
   - 支持为不同的股票配置不同的扫描策略组合。
 - **定时运行：** 可部署到 GitHub Actions，实现定时自动扫描和邮件发送。
 
+**GitHub Actions部署教程**: [Building an Automated NASDAQ Stock Scanner: From Setup to Deployment](https://wywwwwei.github.io/2026/01/11/stock-scanner/)
+
 ## 配置方法教程
 
 ### 1. 新增策略

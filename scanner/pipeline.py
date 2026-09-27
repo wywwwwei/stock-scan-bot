@@ -244,6 +244,7 @@ class StockScanner:
 
         支持：
         - "$12,345,678.90"
+        - "+4.52%", "50.1%", "-2.3%"
         - "123,456"
         - 纯数字
         """
@@ -254,8 +255,8 @@ class StockScanner:
             return float(value)
 
         if isinstance(value, str):
-            # 去掉 $, , 等符号
-            cleaned = re.sub(r"[,$]", "", value)
+            # 去掉 $, ,, %, + 等符号
+            cleaned = re.sub(r"[,$%+]", "", value.strip())
             try:
                 return float(cleaned)
             except ValueError:

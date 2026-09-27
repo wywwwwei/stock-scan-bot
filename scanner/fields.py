@@ -24,6 +24,9 @@ class FieldKey(str, Enum):
 
     MA5 = "MA5"  # 5 日均线
     MA10 = "MA10"  # 10 日均线
+    MA20 = "MA20"  # 20 日均线
+    MA50 = "MA50"  # 50 日均线
+    MA200 = "MA200"  # 200 日均线
 
     MACD_DIF = "MACD_DIF"  # MACD 快线（DIF）
     MACD_DEA = "MACD_DEA"  # MACD 慢线（DEA）

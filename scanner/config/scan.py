@@ -2,6 +2,7 @@ from typing import Dict, List
 from strategy.volume_surge import VolumeSurgeStrategy
 from strategy.ma_cross import MACrossStrategy
 from strategy.cd_signal import CDSignalStrategy
+from strategy.trend_pullback import TrendPullbackStrategy
 
 # 业务扫描配置（股票池 / 策略 / 并发 / 速率）
 
@@ -10,6 +11,7 @@ EXECUTE_STRATEGIES = [
     CDSignalStrategy(),
     MACrossStrategy(),
     VolumeSurgeStrategy(),
+    TrendPullbackStrategy(),
 ]
 
 # ===== 股票 → 策略 映射（可覆盖默认策略）=====

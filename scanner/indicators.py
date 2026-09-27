@@ -87,7 +87,13 @@ def calc_dollar_volume(df: pd.DataFrame) -> pd.DataFrame:
 
 @register_indicator(
     name="MA",
-    output_columns=[FieldKey.MA5, FieldKey.MA10],
+    output_columns=[
+        FieldKey.MA5,
+        FieldKey.MA10,
+        FieldKey.MA20,
+        FieldKey.MA50,
+        FieldKey.MA200,
+    ],
 )
 def calc_ma(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -95,6 +101,9 @@ def calc_ma(df: pd.DataFrame) -> pd.DataFrame:
 
     - MA5
     - MA10
+    - MA20
+    - MA50
+    - MA200
 
     依赖字段：
         - Close
@@ -102,8 +111,12 @@ def calc_ma(df: pd.DataFrame) -> pd.DataFrame:
     if FieldKey.CLOSE.value not in df.columns:
         raise RuntimeError("计算 MA 需要字段 Close")
 
-    df[FieldKey.MA5.value] = df[FieldKey.CLOSE.value].rolling(5).mean()
-    df[FieldKey.MA10.value] = df[FieldKey.CLOSE.value].rolling(10).mean()
+    close = df[FieldKey.CLOSE.value]
+    df[FieldKey.MA5.value] = close.rolling(5).mean()
+    df[FieldKey.MA10.value] = close.rolling(10).mean()
+    df[FieldKey.MA20.value] = close.rolling(20).mean()
+    df[FieldKey.MA50.value] = close.rolling(50).mean()
+    df[FieldKey.MA200.value] = close.rolling(200).mean()
     return df
 
 

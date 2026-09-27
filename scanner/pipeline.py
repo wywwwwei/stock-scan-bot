@@ -1,3 +1,4 @@
+import time
 import pandas as pd
 import re
 from typing import Dict, List, Tuple
@@ -5,6 +6,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from utils.progress_logger import ProgressLogger
 from scanner.indicators import preprocess_data
+from scanner.config.scan import (
+    HISTORY_BATCH_SIZE,
+    HISTORY_BATCH_SLEEP_SEC,
+    HISTORY_TIMEOUT_SEC,
+)
 from strategy.base import BaseStrategy
 
 
@@ -21,10 +27,16 @@ class StockScanner:
         datasource,
         stock_strategy_map: Dict[str, List],
         default_strategies: List,
+        batch_size: int = None,
+        batch_sleep_sec: float = None,
     ):
         self.datasource = datasource
         self.stock_strategy_map = stock_strategy_map
         self.default_strategies = default_strategies
+        self.batch_size = batch_size if batch_size is not None else HISTORY_BATCH_SIZE
+        self.batch_sleep_sec = (
+            batch_sleep_sec if batch_sleep_sec is not None else HISTORY_BATCH_SLEEP_SEC
+        )
 
     def all_possible_strategies(self) -> List:
         seen = set()
@@ -92,13 +104,12 @@ class StockScanner:
 
     def fetch_histories(self, tickers: List[str]) -> Dict[str, pd.DataFrame]:
         """
-        拉取历史数据
+        拉取历史数据（支持受控小批次批量拉取与降级容错）
 
         :param tickers: 股票列表
         :return: { ticker: DataFrame }
         """
         histories: Dict[str, pd.DataFrame] = {}
-
         total = len(tickers)
         print(f"[INFO] 开始拉取历史数据，共 {total} 只股票")
 
@@ -106,27 +117,88 @@ class StockScanner:
             print("[WARN] 股票列表为空，跳过历史数据拉取")
             return histories
 
-        progress = ProgressLogger(total)
+        # 检查 datasource 是否支持批量拉取且批大小 > 1
+        use_batch = (
+            hasattr(self.datasource, "history_batch")
+            and self.batch_size > 1
+        )
 
-        for idx, ticker in enumerate(tickers, start=1):
+        if not use_batch:
+            # 回退/兼容单股票串行拉取
+            progress = ProgressLogger(total)
+            for idx, ticker in enumerate(tickers, start=1):
+                strategies = self.stock_strategy_map.get(ticker, self.default_strategies)
+                if not strategies:
+                    print(f"[WARN] {ticker} 无策略配置，跳过")
+                    progress.log(idx)
+                    continue
+
+                max_days = max(s.get_required_days() for s in strategies)
+                df = self.datasource.history(ticker, max_days + 10)
+                if df.empty:
+                    print(f"[WARN] {ticker} 历史数据为空，跳过")
+                    progress.log(idx)
+                    continue
+
+                histories[ticker] = df
+                progress.log(idx)
+
+            print(f"[INFO] 历史数据拉取完成：{len(histories)} / {len(tickers)}")
+            return histories
+
+        # ===== 受控小批次批量拉取模式 =====
+        # 1. 按股票策略所需天数进行分组
+        days_to_tickers: Dict[int, List[str]] = {}
+        for ticker in tickers:
             strategies = self.stock_strategy_map.get(ticker, self.default_strategies)
-
             if not strategies:
                 print(f"[WARN] {ticker} 无策略配置，跳过")
-                progress.log(idx)
                 continue
+            max_days = max(s.get_required_days() for s in strategies) + 10
+            days_to_tickers.setdefault(max_days, []).append(ticker)
 
-            # 计算该股票所需的最大历史天数
-            max_days = max(s.get_required_days() for s in strategies)
-            df = self.datasource.history(ticker, max_days + 10)
+        # 构建所有批次任务 [(days, [tickers...])]
+        all_batches: List[Tuple[int, List[str]]] = []
+        for days, group_tickers in days_to_tickers.items():
+            for i in range(0, len(group_tickers), self.batch_size):
+                all_batches.append((days, group_tickers[i : i + self.batch_size]))
 
-            if df.empty:
-                print(f"[WARN] {ticker} 历史数据为空，跳过")
-                progress.log(idx)
-                continue
+        total_batches = len(all_batches)
+        print(
+            f"[INFO] 历史行情批量拉取: {total} 只股票分为 {total_batches} 个受控批次 "
+            f"(每批至多 {self.batch_size} 只, 批间隔 {self.batch_sleep_sec}s)"
+        )
 
-            histories[ticker] = df
-            progress.log(idx)
+        for batch_idx, (days, batch_tickers) in enumerate(all_batches, start=1):
+            batch_result = self.datasource.history_batch(
+                batch_tickers,
+                days,
+                timeout_sec=HISTORY_TIMEOUT_SEC,
+            )
+
+            # 收集拉取成功的数据
+            for ticker, df in batch_result.items():
+                if not df.empty:
+                    histories[ticker] = df
+
+            # 容错降级：检查批次中是否有遗漏未返回的股票，尝试单只回退拉取
+            missing = [t for t in batch_tickers if t not in histories]
+            if missing and hasattr(self.datasource, "history"):
+                for m_ticker in missing:
+                    m_df = self.datasource.history(m_ticker, days)
+                    if not m_df.empty:
+                        histories[m_ticker] = m_df
+
+            # 打印批次进度
+            if batch_idx % 5 == 0 or batch_idx == total_batches:
+                print(
+                    f"[INFO] 历史行情拉取进度: 批次 {batch_idx}/{total_batches}，"
+                    f"已就绪股票 {len(histories)}/{total}"
+                )
+
+            # 批次间主动冷却休眠（最后一批无需休眠）
+            if batch_idx < total_batches and self.batch_sleep_sec > 0:
+                time.sleep(self.batch_sleep_sec)
 
         print(f"[INFO] 历史数据拉取完成：{len(histories)} / {len(tickers)}")
         return histories

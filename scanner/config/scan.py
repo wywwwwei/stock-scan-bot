@@ -78,3 +78,10 @@ SCAN_MAX_WORKERS: int = 10
 
 # ===== yfinance 限流参数 =====
 YF_MAX_CALLS_PER_SEC: int = 4
+
+# ===== 历史行情批量拉取参数 =====
+# 采用“受控小批次 + 批次间充分休眠”模式，大幅减少 HTTP 请求数，同时避免 429 限流
+HISTORY_BATCH_SIZE: int = 40          # 历史数据每批请求的股票数量（建议 30~50）
+HISTORY_BATCH_SLEEP_SEC: float = 1.0  # 批次之间的休眠间隔（秒，建议 1.0~1.5 秒）
+HISTORY_TIMEOUT_SEC: float = 30.0     # 单批 HTTP 超时时间（秒）
+

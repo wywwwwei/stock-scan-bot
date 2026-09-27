@@ -15,14 +15,14 @@ class CDSignalStrategy(BaseStrategy):
     """
 
     def __init__(self) -> None:
-        # MACD 计算通常需要较多天数，例如 34 天 (MAX(12, 26) + 9 - 1) 以上的数据来稳定计算
-        # 为了确保金叉、背离、柱缩短都能有效判断，我们使用较长的天数
-        self.days_needed: int = 50
+        # MACD 计算需要较长预热周期以确保 EMA26 与 DEA9 充分收敛（建议至少 100~120 天以上）
+        # 120 天历史能有效消除 MACD 指标漂移误差，对齐主流行情平台数值
+        self.days_needed: int = 120
 
     # ========= 基本信息 =========
 
     def get_description(self) -> str:
-        return "MACD金叉抄底信号且过去10天平均交易额>1000万美元 (按平均交易额排序)"
+        return "MACD水下金叉底背离抄底信号且过去10天平均交易额>1000万美元 (按平均交易额排序)"
 
     # ========= 数据需求 =========
 
@@ -30,11 +30,9 @@ class CDSignalStrategy(BaseStrategy):
         return self.days_needed
 
     def get_required_fields(self) -> list[FieldKey]:
-        # 需要 Close 价格来计算 MACD
-        # 需要 DollarVolume 用于交易额条件
-        # 需要 Low 价格用于底背离判断
         return [
             FieldKey.CLOSE,
+            FieldKey.HIGH,
             FieldKey.LOW,
             FieldKey.DOLLAR_VOLUME,
             FieldKey.MACD_DIF,
@@ -44,13 +42,86 @@ class CDSignalStrategy(BaseStrategy):
 
     # ========= 策略判断 =========
 
+    def _evaluate_divergence(
+        self, today: pd.Series, history: pd.DataFrame
+    ) -> tuple[bool, Dict[str, Any]]:
+        """
+        基于波谷形态（Swing Low Pivot）判定价格底背离。
+        """
+        MAX_LOOKBACK = 35
+        MIN_VALLEY_DISTANCE = 3
+        PRICE_TOLERANCE = 0.05
+
+        lookback = min(MAX_LOOKBACK - 1, len(history))
+        window_past = history.iloc[-lookback:].copy()
+        current_df = pd.DataFrame([today])
+        window = pd.concat([window_past, current_df], axis=0, sort=False).reset_index(
+            drop=True
+        )
+        n = len(window)
+
+        if n < 10:
+            return False, {}
+
+        # 第二低点在最近 7 根 K 线内（含今天）
+        recent_bars = min(7, n - MIN_VALLEY_DISTANCE)
+        second_window = window.iloc[-recent_bars:]
+        idx_2 = second_window[FieldKey.LOW.value].idxmin()
+        low_2 = float(window.loc[idx_2, FieldKey.LOW.value])
+        dif_2 = float(window.loc[idx_2, FieldKey.MACD_DIF.value])
+
+        # 第一低点在 idx_2 之前至少间隔 MIN_VALLEY_DISTANCE 根 K 线
+        prev_end = idx_2 - MIN_VALLEY_DISTANCE
+        if prev_end < 0:
+            return False, {}
+
+        prev_window = window.iloc[: prev_end + 1]
+        if prev_window.empty:
+            return False, {}
+
+        idx_1 = prev_window[FieldKey.LOW.value].idxmin()
+        low_1 = float(window.loc[idx_1, FieldKey.LOW.value])
+        dif_1 = float(window.loc[idx_1, FieldKey.MACD_DIF.value])
+
+        # 确认两谷之间有价格反弹或动能回升（排除单边阴跌连续下跌）
+        between_window = window.iloc[idx_1 + 1 : idx_2]
+        if between_window.empty:
+            return False, {}
+
+        between_max_high = float(between_window[FieldKey.HIGH.value].max())
+        between_max_dif = float(between_window[FieldKey.MACD_DIF.value].max())
+        has_bounce = (between_max_high >= low_1 * 1.01) or (between_max_dif > dif_1)
+        if not has_bounce:
+            return False, {}
+
+        # 价格容差：第二低点不高于前低 5% 以上（允许二次探底或微抬高的 Higher Low）
+        is_price_ok = low_2 <= low_1 * (1 + PRICE_TOLERANCE)
+        if not is_price_ok:
+            return False, {}
+
+        # 底背离：第二低点的 DIF 不低于第一低点 DIF
+        is_dif_ok = dif_2 >= dif_1
+        if not is_dif_ok:
+            return False, {}
+
+        days_ago_1 = n - 1 - idx_1
+        days_ago_2 = n - 1 - idx_2
+        info = {
+            "low_1": low_1,
+            "dif_1": dif_1,
+            "days_ago_1": days_ago_1,
+            "low_2": low_2,
+            "dif_2": dif_2,
+            "days_ago_2": days_ago_2,
+        }
+        return True, info
+
     def check_condition(
         self,
         today: pd.Series,
         history: pd.DataFrame,
     ) -> bool:
-        if len(history) != self.days_needed - 1:
-            print("[WARN] CDSignalStrategy history 行数异常")
+        if len(history) < self.days_needed - 1:
             return False
 
         # --- 条件 A: 检查过去10天平均成交额 ---
@@ -92,57 +163,11 @@ class CDSignalStrategy(BaseStrategy):
         )
 
         if not shrink_histogram:
-            return False  # 如果柱子不符合缩短条件，返回False
-
-        # -------- 条件 3：价格底背离（宽松版）--------
-        # 更宽松的参数设置
-        MAX_LOOKBACK = 30  # 背离检测的最大回看天数（不含今天）
-        RECENT_BARS_FOR_SECOND_LOW = 7  # 第二低点在最近多少根 K 线中寻找
-        PRICE_TOLERANCE = 0.05  # 价格容差：第二低点不高于前低 5% 以上
-
-        lookback_past = min(MAX_LOOKBACK, len(history))
-
-        # 最近 lookback_past 根历史 + 今天
-        window_past = history.iloc[-lookback_past:].copy()
-        current_df = pd.DataFrame([today])
-        window_full = pd.concat([window_past, current_df], axis=0, sort=False)
-
-        total_len = len(window_full)
-        # 近期窗口至少 1 根，前段也至少 1 根
-        recent_n = min(RECENT_BARS_FOR_SECOND_LOW, total_len - 1)
-        split_idx = total_len - recent_n
-        prev_window = window_full.iloc[:split_idx]  # 用于找第一个低点
-        second_window = window_full.iloc[split_idx:]  # 用于找第二个低点（含今天）
-
-        # 找两个价格低点
-        prev_price_low = prev_window[FieldKey.LOW.value].min()
-        prev_price_low_idx = prev_window[FieldKey.LOW.value].idxmin()
-
-        second_price_low = second_window[FieldKey.LOW.value].min()
-        second_price_low_idx = second_window[FieldKey.LOW.value].idxmin()
-
-        # 确保第二个低点在第一个低点之后（按位置判断）
-        prev_pos = window_full.index.get_loc(prev_price_low_idx)
-        second_pos = window_full.index.get_loc(second_price_low_idx)
-        if second_pos <= prev_pos:
             return False
 
-        # 宽松价格条件：第二低点价格 <= 前低 * (1 + 5%)
-        # 允许二次探底或略高一点的高低点（Higher Low）
-        is_price_retest_or_higher_low = second_price_low <= prev_price_low * (
-            1 + PRICE_TOLERANCE
-        )
-        if not is_price_retest_or_higher_low:
-            return False
-
-        # 对应两个低点的 DIF
-        prev_dif_at_low = window_full.loc[prev_price_low_idx, FieldKey.MACD_DIF.value]
-        second_dif_at_low = window_full.loc[
-            second_price_low_idx, FieldKey.MACD_DIF.value
-        ]
-
-        # 宽松底背离：第二低点 DIF 不低于前低 DIF（>= 而不是 >）
-        return second_dif_at_low >= prev_dif_at_low
+        # -------- 条件 3：价格底背离（波谷形态识别版）--------
+        is_divergent, _ = self._evaluate_divergence(today, history)
+        return is_divergent
 
     # ========= 结果输出 =========
 
@@ -155,10 +180,26 @@ class CDSignalStrategy(BaseStrategy):
         past_10_dollar_volumes = history[FieldKey.DOLLAR_VOLUME.value].iloc[-10:]
         avg_dollar_vol_10 = past_10_dollar_volumes.mean()
         current_dollar_volume = today[FieldKey.DOLLAR_VOLUME.value]
+        current_close = today[FieldKey.CLOSE.value]
+        current_dif = today[FieldKey.MACD_DIF.value]
+        current_dea = today[FieldKey.MACD_DEA.value]
+
+        _, div_info = self._evaluate_divergence(today, history)
+        if div_info:
+            div_desc = (
+                f"L1:${div_info['low_1']:.2f}(DIF:{div_info['dif_1']:.2f}) -> "
+                f"L2:${div_info['low_2']:.2f}(DIF:{div_info['dif_2']:.2f})"
+            )
+        else:
+            div_desc = "形态确认"
+
         return {
             "Symbol": symbol,
-            "Current Dollar Volume": f"${current_dollar_volume:,.2f}",
+            "Close": f"${current_close:.2f}",
+            "MACD(DIF/DEA)": f"{current_dif:.2f} / {current_dea:.2f}",
+            "Divergence Details": div_desc,
             "Avg Dollar Volume (10-day)": f"${avg_dollar_vol_10:,.2f}",
+            "Current Dollar Volume": f"${current_dollar_volume:,.2f}",
         }
 
     # ========= 排序语义 =========

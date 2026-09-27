@@ -11,6 +11,7 @@ from scanner.config.scan import (
     PREFILTER_MIN_DOLLAR_VOLUME,
     PREFILTER_BATCH_SIZE,
     PREFILTER_SLEEP_SEC,
+    INCLUDE_ETFS,
 )
 
 NASDAQ_LIST_URL = "https://www.nasdaqtrader.com/dynamic/symdir/nasdaqlisted.txt"
@@ -21,8 +22,9 @@ def clean_nasdaq_symbols(df: pd.DataFrame) -> List[str]:
     清洗 NASDAQ 股票列表：
     1. 剔除末尾元数据行（如 File Creation Time）与空代码；
     2. 剔除测试代码（Test Issue == 'Y'）；
-    3. 剔除权证（Warrant）、认股权（Right）、单位（Unit）及优先股（Preferred）等非普通股衍生品种；
-    4. 剔除 5 位以 W/R/U 结尾的代码或包含特殊符号的代码。
+    3. 剔除 ETF 基金（当 INCLUDE_ETFS 为 False 时）；
+    4. 剔除权证（Warrant）、认股权（Right）、单位（Unit）及优先股（Preferred）等非普通股衍生品种；
+    5. 剔除 5 位以 W/R/U 结尾的代码或包含特殊符号的代码。
     """
     if df is None or df.empty or "Symbol" not in df.columns:
         return []
@@ -41,6 +43,10 @@ def clean_nasdaq_symbols(df: pd.DataFrame) -> List[str]:
     # 2. 过滤测试代码 (Test Issue == 'Y')
     if "Test Issue" in df.columns:
         df = df[df["Test Issue"].astype(str).str.strip().str.upper() != "Y"]
+
+    # 3. 过滤 ETF（当 INCLUDE_ETFS 为 False 时，仅保留普通个股）
+    if not INCLUDE_ETFS and "ETF" in df.columns:
+        df = df[df["ETF"].astype(str).str.strip().str.upper() != "Y"]
 
     # 3. 基于 Security Name 过滤权证、认股权、单位及优先股
     if "Security Name" in df.columns:
@@ -66,9 +72,11 @@ def clean_nasdaq_symbols(df: pd.DataFrame) -> List[str]:
 
     symbols = df["Symbol"].astype(str).str.strip().tolist()
     filtered_count = initial_count - len(symbols)
+    target_type = "普通正股" if not INCLUDE_ETFS else "有效标的(含ETF)"
+    etf_info = "/ETF" if not INCLUDE_ETFS else ""
     print(
         f"[INFO] NASDAQ 标的清洗完成: 原始 {initial_count} 只，"
-        f"剔除 {filtered_count} 只衍生品/测试代码，保留有效普通正股 {len(symbols)} 只"
+        f"剔除 {filtered_count} 只衍生品/测试代码{etf_info}，保留{target_type} {len(symbols)} 只"
     )
     return symbols
 

@@ -34,6 +34,11 @@ TARGET_STOCKS: List[str] = [
     # 如果列表为空，则扫描所有股票
 ]
 
+# 是否在扫描股票池中包含 ETF
+# - True : 包含各类 ETF 基金（如 TQQQ, SOXL, 行业与杠杆 ETF 等）
+# - False: 自动剔除 ETF，仅扫描真正的公司普通个股（默认推荐）
+INCLUDE_ETFS: bool = False
+
 # ===== Prefilter 参数（仅用于扫描全量 NASDAQ 时）=====
 #
 # Prefilter 的定位：

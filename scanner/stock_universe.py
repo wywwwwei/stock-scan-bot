@@ -9,6 +9,8 @@ from scanner.config.scan import (
     ENABLE_PREFILTER,
     PREFILTER_MIN_CLOSE_PRICE,
     PREFILTER_MIN_DOLLAR_VOLUME,
+    PREFILTER_BATCH_SIZE,
+    PREFILTER_SLEEP_SEC,
 )
 
 NASDAQ_LIST_URL = "https://www.nasdaqtrader.com/dynamic/symdir/nasdaqlisted.txt"
@@ -182,8 +184,8 @@ def build_universe_with_prefilter(all_symbols: List[str]) -> List[str]:
     )
 
     datasource = YahooBatchPrefilterDataSource(
-        batch_size=25,
-        sleep_sec=0.1,
+        batch_size=PREFILTER_BATCH_SIZE,
+        sleep_sec=PREFILTER_SLEEP_SEC,
     )
     bars = datasource.fetch_last_completed_bars(all_symbols)
 

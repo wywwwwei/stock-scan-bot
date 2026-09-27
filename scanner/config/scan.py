@@ -62,6 +62,12 @@ PREFILTER_MIN_DOLLAR_VOLUME = 2_000_000
 # - 容易出现极端波动 / 数据噪声的标的
 PREFILTER_MIN_CLOSE_PRICE = 1
 
+# Prefilter 批处理大小（建议 60~100，避免单批过大或过碎）
+PREFILTER_BATCH_SIZE: int = 80
+
+# 批次之间的休眠间隔（秒，主动冷却避免触发 Yahoo 429 限流）
+PREFILTER_SLEEP_SEC: float = 0.3
+
 # ===== 并发参数 =====
 SCAN_MAX_WORKERS: int = 10
 

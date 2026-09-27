@@ -14,9 +14,66 @@ from scanner.config.scan import (
 NASDAQ_LIST_URL = "https://www.nasdaqtrader.com/dynamic/symdir/nasdaqlisted.txt"
 
 
+def clean_nasdaq_symbols(df: pd.DataFrame) -> List[str]:
+    """
+    清洗 NASDAQ 股票列表：
+    1. 剔除末尾元数据行（如 File Creation Time）与空代码；
+    2. 剔除测试代码（Test Issue == 'Y'）；
+    3. 剔除权证（Warrant）、认股权（Right）、单位（Unit）及优先股（Preferred）等非普通股衍生品种；
+    4. 剔除 5 位以 W/R/U 结尾的代码或包含特殊符号的代码。
+    """
+    if df is None or df.empty or "Symbol" not in df.columns:
+        return []
+
+    initial_count = len(df)
+
+    # 1. 过滤空值与文件末尾元数据行
+    df = df.dropna(subset=["Symbol"])
+    df = df[df["Symbol"].astype(str).str.strip().ne("")]
+    df = df[
+        ~df["Symbol"]
+        .astype(str)
+        .str.contains("File Creation Time", case=False, na=False)
+    ]
+
+    # 2. 过滤测试代码 (Test Issue == 'Y')
+    if "Test Issue" in df.columns:
+        df = df[df["Test Issue"].astype(str).str.strip().str.upper() != "Y"]
+
+    # 3. 基于 Security Name 过滤权证、认股权、单位及优先股
+    if "Security Name" in df.columns:
+        name_series = df["Security Name"].astype(str).str.lower()
+        exclude_patterns = [
+            r"\bwarrant\b",
+            r"\brights?\b",
+            r"\bunits?\b",
+            r"\bpreferred\b",
+            r"\bdebenture\b",
+        ]
+        combined_pattern = "|".join(exclude_patterns)
+        df = df[~name_series.str.contains(combined_pattern, regex=True, na=False)]
+
+    # 4. 基于代码特征过滤（5位以 W/R/U 结尾的权证/认股权/单位，或带非字母符号）
+    symbol_series = df["Symbol"].astype(str).str.strip()
+    is_alpha = symbol_series.str.isalpha()
+    is_derivative_suffix = (symbol_series.str.len() == 5) & (
+        symbol_series.str.upper().str.endswith(("W", "R", "U"))
+    )
+
+    df = df[is_alpha & (~is_derivative_suffix)]
+
+    symbols = df["Symbol"].astype(str).str.strip().tolist()
+    filtered_count = initial_count - len(symbols)
+    print(
+        f"[INFO] NASDAQ 标的清洗完成: 原始 {initial_count} 只，"
+        f"剔除 {filtered_count} 只衍生品/测试代码，保留有效普通正股 {len(symbols)} 只"
+    )
+    return symbols
+
+
 def get_nasdaq_symbols() -> List[str]:
     """
-    从 NASDAQ 官方下载 nasdaqlisted.txt，解析股票代码列表。
+    从 NASDAQ 官方下载 nasdaqlisted.txt，解析并清洗股票代码列表。
 
     :return: 股票代码列表（可能为空）
     """
@@ -31,14 +88,7 @@ def get_nasdaq_symbols() -> List[str]:
             print("[ERROR] NASDAQ 文件中不存在 Symbol 列")
             return []
 
-        # 清洗非法 Symbol
-        df = df.dropna(subset=["Symbol"])
-        df = df[df["Symbol"].str.strip().ne("")]
-
-        symbols = df["Symbol"].tolist()
-        print(f"[INFO] 成功获取 NASDAQ 股票 {len(symbols)} 只")
-
-        return symbols
+        return clean_nasdaq_symbols(df)
 
     except requests.exceptions.RequestException as e:
         print(f"[ERROR] 下载 NASDAQ 股票列表失败: {e}")

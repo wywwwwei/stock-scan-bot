@@ -158,6 +158,63 @@ def calc_macd(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+@register_indicator(
+    name="Squeeze",
+    output_columns=[
+        FieldKey.BB_UPPER,
+        FieldKey.BB_LOWER,
+        FieldKey.KC_UPPER,
+        FieldKey.KC_LOWER,
+        FieldKey.SQUEEZE_ON,
+    ],
+)
+def calc_squeeze(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    TTM 波动率挤压指标 (Bollinger Bands vs Keltner Channels)
+
+    - 布林带 (20, 2.0 std)
+    - 肯特纳通道 (20 EMA, 1.5 ATR)
+    - Squeeze_On: BB 完全落在 KC 内部
+    """
+    for req in [FieldKey.CLOSE, FieldKey.HIGH, FieldKey.LOW]:
+        if req.value not in df.columns:
+            raise RuntimeError(f"计算 Squeeze 需要字段 {req.value}")
+
+    close = df[FieldKey.CLOSE.value]
+    high = df[FieldKey.HIGH.value]
+    low = df[FieldKey.LOW.value]
+    prev_close = close.shift(1)
+
+    # 1. 真实波幅 (True Range, TR) 与 20 周期 ATR
+    tr1 = high - low
+    tr2 = (high - prev_close).abs()
+    tr3 = (low - prev_close).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    atr20 = tr.rolling(20).mean()
+
+    # 2. 布林带 (20, 2.0)
+    sma20 = close.rolling(20).mean()
+    std20 = close.rolling(20).std()
+    bb_upper = sma20 + 2.0 * std20
+    bb_lower = sma20 - 2.0 * std20
+
+    # 3. 肯特纳通道 (20 EMA, 1.5 ATR)
+    ema20 = close.ewm(span=20, adjust=False).mean()
+    kc_upper = ema20 + 1.5 * atr20
+    kc_lower = ema20 - 1.5 * atr20
+
+    # 4. Squeeze 状态 (布林带收缩进肯特纳通道内部)
+    squeeze_on = (bb_upper < kc_upper) & (bb_lower > kc_lower)
+
+    df[FieldKey.BB_UPPER.value] = bb_upper
+    df[FieldKey.BB_LOWER.value] = bb_lower
+    df[FieldKey.KC_UPPER.value] = kc_upper
+    df[FieldKey.KC_LOWER.value] = kc_lower
+    df[FieldKey.SQUEEZE_ON.value] = squeeze_on
+
+    return df
+
+
 # ========= preprocess 主入口 =========
 
 

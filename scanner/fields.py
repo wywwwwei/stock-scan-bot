@@ -31,3 +31,10 @@ class FieldKey(str, Enum):
     MACD_DIF = "MACD_DIF"  # MACD 快线（DIF）
     MACD_DEA = "MACD_DEA"  # MACD 慢线（DEA）
     MACD_HISTOGRAM = "MACD_Histogram"  # MACD 柱状图
+
+    # ========= 波动率挤压字段（TTM Squeeze） =========
+    BB_UPPER = "BB_Upper"  # 布林带上轨
+    BB_LOWER = "BB_Lower"  # 布林带下轨
+    KC_UPPER = "KC_Upper"  # 肯特纳通道上轨
+    KC_LOWER = "KC_Lower"  # 肯特纳通道下轨
+    SQUEEZE_ON = "Squeeze_On"  # 是否处于挤压状态 (布林带在肯特纳通道内)

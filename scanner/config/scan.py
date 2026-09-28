@@ -7,6 +7,7 @@ from strategy.new_high_breakout import NewHighBreakoutStrategy
 from strategy.ttm_squeeze import TTMSqueezeStrategy
 from strategy.penny_base_ignition import PennyBaseIgnitionStrategy
 from strategy.penny_stealth_accumulation import PennyStealthAccumulationStrategy
+from strategy.penny_wyckoff_spring import PennyWyckoffSpringStrategy
 
 # 业务扫描配置（股票池 / 策略 / 并发 / 速率）
 
@@ -20,6 +21,7 @@ EXECUTE_STRATEGIES = [
     TTMSqueezeStrategy(),
     PennyBaseIgnitionStrategy(),
     PennyStealthAccumulationStrategy(),
+    PennyWyckoffSpringStrategy(),
 ]
 
 # ===== 股票 → 策略 映射（可覆盖默认策略）=====

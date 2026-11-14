@@ -38,3 +38,6 @@ class FieldKey(str, Enum):
     KC_UPPER = "KC_Upper"  # 肯特纳通道上轨
     KC_LOWER = "KC_Lower"  # 肯特纳通道下轨
     SQUEEZE_ON = "Squeeze_On"  # 是否处于挤压状态 (布林带在肯特纳通道内)
+
+    # ========= 动量震荡字段 =========
+    RSI14 = "RSI14"  # 14 周期相对强弱指标 (Relative Strength Index)

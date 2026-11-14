@@ -1,5 +1,6 @@
 from typing import Callable, Dict, Iterable, List
 import pandas as pd
+import numpy as np
 
 from scanner.fields import FieldKey
 
@@ -212,6 +213,42 @@ def calc_squeeze(df: pd.DataFrame) -> pd.DataFrame:
     df[FieldKey.KC_LOWER.value] = kc_lower
     df[FieldKey.SQUEEZE_ON.value] = squeeze_on
 
+    return df
+
+
+@register_indicator(
+    name="RSI",
+    output_columns=[FieldKey.RSI14],
+)
+def calc_rsi(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+    """
+    相对强弱指标（RSI）
+
+    计算公式（Wilder's RSI，14 周期）：
+        Delta = Close - Close.shift(1)
+        Gain = Delta.clip(lower=0)
+        Loss = (-Delta).clip(lower=0)
+        Avg_Gain = Gain.ewm(alpha=1/period, adjust=False).mean()
+        Avg_Loss = Loss.ewm(alpha=1/period, adjust=False).mean()
+        RS = Avg_Gain / Avg_Loss
+        RSI = 100 - (100 / (1 + RS))
+    """
+    if FieldKey.CLOSE.value not in df.columns:
+        raise RuntimeError("计算 RSI 需要字段 Close")
+
+    close = df[FieldKey.CLOSE.value]
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = (-delta).clip(lower=0)
+
+    avg_gain = gain.ewm(alpha=1.0 / period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1.0 / period, adjust=False).mean()
+
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    rsi = 100.0 - (100.0 / (1.0 + rs))
+    rsi = rsi.fillna(50.0)
+
+    df[FieldKey.RSI14.value] = rsi
     return df
 
 

@@ -1,18 +1,25 @@
-from typing import Dict, List
+from typing import Dict, List, Optional, Any
 import pandas as pd
 
 
 def format_results_text(
-    results: Dict[str, pd.DataFrame], strategy_metadata: Dict[str, str]
+    results: Dict[str, pd.DataFrame],
+    strategy_metadata: Dict[str, str],
+    market_regime: Optional[Any] = None,
 ) -> str:
     """
     将扫描结果格式化为纯文本，适用于命令行输出。
 
     :param results: {策略名称: DataFrame}
     :param strategy_metadata: 策略元数据字典 {策略名称: 描述}
+    :param market_regime: 可选的大盘宏观感知结果 (MarketRegimeResult)
     :return: 格式化后的纯文本内容
     """
     lines: List[str] = []
+
+    if market_regime and hasattr(market_regime, "to_text"):
+        lines.append(market_regime.to_text())
+        lines.append("")
 
     # 按策略顺序（在 strategy_metadata 中按顺序排列）遍历策略
     for strategy_name in strategy_metadata:
@@ -49,18 +56,24 @@ def format_results_text(
 
 
 def format_results_for_email(
-    results: Dict[str, pd.DataFrame], strategy_metadata: Dict[str, str]
+    results: Dict[str, pd.DataFrame],
+    strategy_metadata: Dict[str, str],
+    market_regime: Optional[Any] = None,
 ) -> str:
     """
     格式化扫描结果为 HTML 内容，适合用于邮件展示
 
     :param results: 策略结果字典 {策略名称: DataFrame}
     :param strategy_metadata: 策略元数据字典 {策略名称: 描述}
+    :param market_regime: 可选的大盘宏观感知结果 (MarketRegimeResult)
     :return: 格式化后的 HTML 内容
     """
     html_content = (
         f"<h2>美股盘后扫描结果 - {pd.Timestamp.now().strftime('%Y-%m-%d')}</h2>"
     )
+
+    if market_regime and hasattr(market_regime, "to_html"):
+        html_content += market_regime.to_html()
 
     # 按策略顺序（在 strategy_metadata 中按顺序排列）遍历策略
     for strategy_name in strategy_metadata:

@@ -14,8 +14,10 @@ DEEPSEEK_API_KEY: Optional[str] = os.getenv("DEEPSEEK_API_KEY")
 # DeepSeek 基础端点（兼容 OpenAI 协议）
 DEEPSEEK_BASE_URL: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 
-# 模型选用：默认 deepseek-chat (DeepSeek-V3，极高性价比与高阶推理能力)
-DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+# 模型选用：
+# - deepseek-flash: DeepSeek-V4.1-Flash 最新架构，速度极快且自带 Thinking 思考能力（默认推荐）
+# - deepseek-v4-pro: DeepSeek-V4-Pro 满血旗舰，超强推演
+DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-flash")
 
 # API 调用超时时间（秒，防止网络抖动阻塞主扫描流水线）
 DEEPSEEK_TIMEOUT_SEC: float = float(os.getenv("DEEPSEEK_TIMEOUT_SEC", "25.0"))

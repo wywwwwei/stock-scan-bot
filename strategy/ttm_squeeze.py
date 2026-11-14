@@ -21,11 +21,13 @@ class TTMSqueezeStrategy(BaseStrategy):
         self,
         min_squeeze_days: int = 3,
         min_change_pct: float = 0.5,
+        max_change_pct: float = 6.0,
         min_avg_dollar_vol: float = 10_000_000.0,
     ) -> None:
         self.days_needed: int = 60  # 60 天历史足以稳定计算 20 EMA, 20 SMA 与 20 ATR
         self.min_squeeze_days = min_squeeze_days
         self.min_change_pct = min_change_pct
+        self.max_change_pct = max_change_pct
         self.min_avg_dollar_vol = min_avg_dollar_vol
 
     # ========= 基本信息 =========
@@ -102,8 +104,8 @@ class TTMSqueezeStrategy(BaseStrategy):
         prev_close = history[FieldKey.CLOSE.value].iloc[-1]
         change_pct = (today_close - prev_close) / prev_close * 100
 
-        # 收阳线且涨幅达到门槛
-        if today_close <= today_open or change_pct < self.min_change_pct:
+        # 收阳线且涨幅处于合理启动区间（0.5% ~ 6.0%，防首日爆拉透支见顶）
+        if today_close <= today_open or change_pct < self.min_change_pct or change_pct > self.max_change_pct:
             return False
 
         return True

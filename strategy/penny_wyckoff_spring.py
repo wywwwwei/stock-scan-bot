@@ -27,7 +27,7 @@ class PennyWyckoffSpringStrategy(BaseStrategy):
         max_price: float = 5.00,
         min_avg_dollar_vol: float = 300_000.0,
         min_today_dollar_vol: float = 150_000.0,
-        max_retest_volume_ratio: float = 0.70,
+        max_retest_volume_ratio: float = 0.55,
     ) -> None:
         self.days_needed: int = 50  # 35 天支撑构筑 + 5 天弹簧与测试 + 20 天均线
         self.min_price = min_price
@@ -116,7 +116,7 @@ class PennyWyckoffSpringStrategy(BaseStrategy):
         # 挖坑后必须曾成功反抽收回支撑位之上
         spring_first_idx = np.where(spring_mask.to_numpy())[0][0]
         post_spring_closes = recent_closes.iloc[spring_first_idx:]
-        if post_spring_closes.max() < support_level * 0.98:
+        if post_spring_closes.max() < support_level * 1.00:
             return False
 
         # --- 条件 5: 今日无供给二次测试 (No-Supply Retest) ---
@@ -124,11 +124,11 @@ class PennyWyckoffSpringStrategy(BaseStrategy):
         if pd.isna(today_low) or today_low < spring_low * 0.99:
             return False  # 未跌破 Spring 挖坑低点
 
-        # 今日收盘紧贴支撑位 (-3% ~ +12%)
-        if today_close < support_level * 0.97 or today_close > support_level * 1.12:
+        # 今日收盘坚决守在支撑位之上且不过度追高 (0% ~ +10%)
+        if today_close < support_level * 1.00 or today_close > support_level * 1.10:
             return False
 
-        # 成交量极度萎缩（<= 20 日均量的 70%）
+        # 成交量极度萎缩（<= 20 日均量的 55%）
         full_volume = pd.concat(
             [history[FieldKey.VOLUME.value], pd.Series([today[FieldKey.VOLUME.value]])],
             ignore_index=True,
@@ -141,9 +141,9 @@ class PennyWyckoffSpringStrategy(BaseStrategy):
         if vol_ratio > self.max_retest_volume_ratio:
             return False
 
-        # 今日非暴跌实体大阴线（实体跌幅不超过 3%）
+        # 今日企稳阳线或十字星（收盘 >= 开盘，避免阴线破位下砸）
         today_open = today[FieldKey.OPEN.value]
-        if (today_open - today_close) / today_open > 0.03:
+        if pd.isna(today_open) or today_close < today_open:
             return False
 
         return True

@@ -19,8 +19,8 @@ class TrendPullbackStrategy(BaseStrategy):
 
     def __init__(
         self,
-        support_tolerance: float = 0.015,
-        max_volume_ratio: float = 0.75,
+        support_tolerance: float = 0.010,
+        max_volume_ratio: float = 0.60,
         min_avg_dollar_vol: float = 5_000_000.0,
     ) -> None:
         self.days_needed: int = 210  # 需要足够行数计算 MA200 与 MA50

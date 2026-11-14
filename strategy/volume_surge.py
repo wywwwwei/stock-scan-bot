@@ -20,7 +20,7 @@ class VolumeSurgeStrategy(BaseStrategy):
     # ========= 基本信息 =========
 
     def get_description(self) -> str:
-        return "成交额放量上涨股（当日放量 > 60日均值 2 倍且涨幅为正）"
+        return "成交额放量上涨股（MA50多头且放量>60日均值2倍）"
 
     # ========= 数据需求 =========
 
@@ -31,6 +31,7 @@ class VolumeSurgeStrategy(BaseStrategy):
         return [
             FieldKey.CLOSE,
             FieldKey.DOLLAR_VOLUME,
+            FieldKey.MA50,
         ]
 
     # ========= 策略判断 =========
@@ -43,13 +44,21 @@ class VolumeSurgeStrategy(BaseStrategy):
         if len(history) < self.days_needed - 1:
             return False
 
-        # --- 条件 A: 涨幅为正（避免放量暴跌/出逃雷股）---
-        prev_close = history[FieldKey.CLOSE.value].iloc[-1]
+        # --- 条件 A: 中期多头趋势过滤（Close > MA50，排除单边阴跌诱多）---
         today_close = today[FieldKey.CLOSE.value]
-        if pd.isna(prev_close) or prev_close <= 0 or today_close <= prev_close:
+        today_ma50 = today[FieldKey.MA50.value]
+        if pd.isna(today_close) or pd.isna(today_ma50) or today_close <= today_ma50:
             return False
 
-        # --- 条件 B: 放量判断（当日成交额 > 60 日均额 2 倍）---
+        # --- 条件 B: 适度涨幅区间（+1.0% <= 涨幅 <= +8.0%，防单日透支追高）---
+        prev_close = history[FieldKey.CLOSE.value].iloc[-1]
+        if pd.isna(prev_close) or prev_close <= 0:
+            return False
+        change_pct = (today_close - prev_close) / prev_close
+        if change_pct < 0.01 or change_pct > 0.08:
+            return False
+
+        # --- 条件 C: 放量判断（当日成交额 > 60 日均额 2 倍）---
         avg_dollar_vol = history[FieldKey.DOLLAR_VOLUME.value].mean()
         if pd.isna(avg_dollar_vol) or avg_dollar_vol <= 0:
             return False

@@ -29,8 +29,10 @@ def format_results_text(
         lines.append("")
 
     if ai_advice and hasattr(ai_advice, "to_text"):
-        lines.append(ai_advice.to_text())
-        lines.append("")
+        advice_text = ai_advice.to_text()
+        if advice_text and advice_text.strip():
+            lines.append(advice_text)
+            lines.append("")
 
     # 按策略顺序（在 strategy_metadata 中按顺序排列）遍历策略
     for strategy_name in strategy_metadata:
@@ -103,7 +105,9 @@ def format_results_for_email(
         html_content += market_regime.to_html()
 
     if ai_advice and hasattr(ai_advice, "to_html"):
-        html_content += ai_advice.to_html()
+        advice_html = ai_advice.to_html()
+        if advice_html and advice_html.strip():
+            html_content += advice_html
 
     # 按策略顺序（在 strategy_metadata 中按顺序排列）遍历策略
     for strategy_name in strategy_metadata:

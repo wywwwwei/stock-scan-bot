@@ -12,6 +12,8 @@ from scanner.config.ai import (
     DEEPSEEK_TIMEOUT_SEC,
     AI_MAX_STOCKS_CONTEXT,
     AI_TEMPERATURE,
+    AI_THINKING_ENABLED,
+    AI_MAX_TOKENS,
 )
 
 
@@ -20,6 +22,9 @@ def _markdown_to_html(md_text: str) -> str:
     轻量安全的 Markdown 转换为内联样式 HTML 渲染器，
     确保在各类邮件客户端（QQ邮箱、Gmail、Outlook 等）中保持精致美观排版。
     """
+    if not md_text:
+        return ""
+
     # 规避基础 XSS 字符（保留后续替换标签）
     text = html.escape(md_text)
 
@@ -73,10 +78,12 @@ class AIAdvisorResult:
     """
 
     def __init__(self, content: str, model_name: str = DEEPSEEK_MODEL):
-        self.content = content.strip()
+        self.content = content.strip() if content else ""
         self.model_name = model_name
 
     def to_text(self) -> str:
+        if not self.content:
+            return ""
         lines = [
             "==================================================",
             f"🤖 AI 首席复盘与操盘内参 ({self.model_name})",
@@ -87,7 +94,12 @@ class AIAdvisorResult:
         return "\n".join(lines)
 
     def to_html(self) -> str:
+        if not self.content:
+            return ""
         body_html = _markdown_to_html(self.content)
+        if not body_html.strip():
+            return ""
+
         return f"""
 <div style="background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%); border: 1px solid #ddd6fe; border-left: 6px solid #7c3aed; border-radius: 8px; padding: 14px 18px; margin-bottom: 22px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; box-shadow: 0 2px 4px rgba(124, 58, 237, 0.06);">
   <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
@@ -180,7 +192,7 @@ def generate_ai_advice(
     market_regime: Optional[Any] = None,
 ) -> Optional[AIAdvisorResult]:
     """
-    调用 DeepSeek 极低成本大模型 API，对盘后扫描结果与大盘宏观环境进行多策略协同复盘与主观交易裁决。
+    调用 DeepSeek 大模型 API，对盘后扫描结果与大盘宏观环境进行多策略协同复盘与主观交易裁决。
 
     :param results: 各策略命中结果字典 {策略名: DataFrame}
     :param market_regime: 可选的大盘感知结果 (MarketRegimeResult)
@@ -223,19 +235,46 @@ def generate_ai_advice(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": context_text},
         ],
-        "temperature": AI_TEMPERATURE,
-        "max_tokens": 1000,
+        "thinking": {
+            "type": "enabled" if AI_THINKING_ENABLED else "disabled"
+        },
+        "max_tokens": AI_MAX_TOKENS,
         "stream": False,
     }
 
+    # 仅在非思考模式下传递 temperature
+    if not AI_THINKING_ENABLED:
+        payload["temperature"] = AI_TEMPERATURE
+
     try:
-        print(f"[INFO] 正在请求 DeepSeek AI 决策分析 ({DEEPSEEK_MODEL})...")
+        thinking_tag = "开启思考" if AI_THINKING_ENABLED else "极速直接输出"
+        print(f"[INFO] 正在请求 DeepSeek AI 决策分析 (模型: {DEEPSEEK_MODEL}, 模式: {thinking_tag})...")
         resp = requests.post(endpoint, json=payload, headers=headers, timeout=DEEPSEEK_TIMEOUT_SEC)
         if resp.status_code == 200:
             data = resp.json()
-            content = data["choices"][0]["message"]["content"]
-            print("[INFO] DeepSeek AI 分析完成")
-            return AIAdvisorResult(content=content, model_name=DEEPSEEK_MODEL)
+            choices = data.get("choices", [])
+            if not choices:
+                print(f"[WARN] DeepSeek 返回异常: choices 列表为空")
+                return None
+
+            choice = choices[0]
+            message = choice.get("message", {})
+            content = message.get("content") or ""
+            reasoning = message.get("reasoning_content") or ""
+            finish_reason = choice.get("finish_reason", "")
+
+            # 优先采用正文 content；若开启思考模式且 content 为空，回退采用 reasoning_content
+            final_content = content.strip()
+            if not final_content and reasoning.strip():
+                print(f"[WARN] DeepSeek content 为空，finish_reason={finish_reason}，回退采用 reasoning_content")
+                final_content = reasoning.strip()
+
+            if not final_content:
+                print(f"[WARN] DeepSeek 返回内容为空 (finish_reason={finish_reason})，跳过 AI 卡片渲染")
+                return None
+
+            print(f"[INFO] DeepSeek AI 分析完成 (字符数: {len(final_content)}, finish_reason: {finish_reason})")
+            return AIAdvisorResult(content=final_content, model_name=DEEPSEEK_MODEL)
         else:
             print(f"[WARN] DeepSeek API 请求返回异常状态码 {resp.status_code}: {resp.text}")
             return None

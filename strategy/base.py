@@ -28,6 +28,14 @@ class BaseStrategy:
         """
         raise NotImplementedError
 
+    def get_playbook(self) -> Dict[str, str]:
+        """
+        返回该策略的实战操作指南（策略目的、入场时机、持仓周期、止盈目标、止损防守与核心要点）。
+        """
+        from scanner.strategy_guide import get_strategy_playbook
+
+        return get_strategy_playbook(self.get_name(), self.get_description())
+
     # ========= 数据需求 =========
 
     def get_required_days(self) -> int:

@@ -6,6 +6,7 @@ from scanner.pipeline import StockScanner
 from scanner.notifier import EmailNotifier
 from scanner.formatter import format_results_text, format_results_for_email
 from scanner.market_regime import detect_market_regime
+from scanner.ai_advisor import generate_ai_advice
 
 
 def main() -> None:
@@ -29,12 +30,19 @@ def main() -> None:
     # ===== Run 耗时统计 =====
     datasource.stats.print_summary("Run")
 
+    # ===== AI 智能决策复盘 (DeepSeek 驱动) =====
+    ai_advice = generate_ai_advice(results, market_regime=market_regime)
+
     # ===== 控制台输出 =====
-    text = format_results_text(results, strategy_metadata, market_regime=market_regime)
+    text = format_results_text(
+        results, strategy_metadata, market_regime=market_regime, ai_advice=ai_advice
+    )
     print(text)
 
     # ===== 邮件通知 =====
-    mail_text = format_results_for_email(results, strategy_metadata, market_regime=market_regime)
+    mail_text = format_results_for_email(
+        results, strategy_metadata, market_regime=market_regime, ai_advice=ai_advice
+    )
     if EMAIL_ENABLED:
         if not SENDER_EMAIL or not SENDER_PASSWORD:
             print("[WARN] 邮件未配置完整，跳过发送")

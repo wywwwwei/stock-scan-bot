@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from utils.progress_logger import ProgressLogger
 from scanner.indicators import preprocess_data
+from scanner.fields import FieldKey
 from scanner.config.scan import (
     HISTORY_BATCH_SIZE,
     HISTORY_BATCH_SLEEP_SEC,
@@ -213,6 +214,8 @@ class StockScanner:
         单股票策略执行（纯计算）
         """
         results: Dict[str, List[dict]] = {}
+        hist_df = hist_df.copy()
+        hist_df[FieldKey.SYMBOL.value] = ticker
 
         # 汇总所有策略所需的数据列, 根据策略需求对历史数据进行预处理（如 MA / MACD 等）
         required_columns = set()

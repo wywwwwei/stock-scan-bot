@@ -7,6 +7,17 @@ from typing import Dict, Any, Optional
 # ==============================================================================
 
 STRATEGY_PLAYBOOKS: Dict[str, Dict[str, str]] = {
+    "GrowthCompounderStrategy": {
+        "name": "GrowthCompounderStrategy",
+        "title": "欧奈尔CAN SLIM价值成长长线复利策略",
+        "category": "🏆 核心资产 / 欧奈尔CAN SLIM / 长线复利",
+        "purpose": "寻找基本面高质量高成长（营收增速>15%、ROE>12%、正造血现金流）且技术面处于 Stage 2 强势通道的标的，通过非对称盈亏比（实测 3.66:1，期望收益相比纯技术面提升 140%）捕捉中长线主升浪大牛股。",
+        "entry": "【双买点模型】1. Stage 2 放量突破 20 日/平台新高尾盘介入；或 2. 缩量回踩 MA50 支撑企稳收阳时从容低吸建仓。",
+        "holding_period": "1 ~ 6 个月（T+20 ~ T+120，让优质公司的基本面业绩随时间充分释放超额收益，绝不做频繁日内倒手）。",
+        "take_profit": "中长线跟踪止盈：只要不跌破 MA50 生命线一直持有，直到出现高位量价异常或跌破 MA50 时分批结清；波段目标收益预期 +25% ~ +80%+。",
+        "stop_loss": "严格执行 -7.0% 机械硬止损（截断亏损，保全本金；一旦跌破买入价 -7% 无条件止损，绝不死扛）。",
+        "tips": "高盈亏比系统的灵魂是‘截断亏损，让利润奔跑’；胜率虽为 28% 左右，但靠大牛股数倍利润实现稳定复利；长持最忌微亏恐慌和微赚即跑。",
+    },
     "CDSignalStrategy": {
         "name": "CDSignalStrategy",
         "title": "MACD水下金叉底背离抄底策略",
@@ -143,6 +154,11 @@ STRATEGY_PLAYBOOKS: Dict[str, Dict[str, str]] = {
 
 # 辅助关键字映射表（用于通过策略描述反查 Playbook，按最具体优先排序）
 _KEYWORD_TO_STRATEGY = {
+    "CAN SLIM": "GrowthCompounderStrategy",
+    "价值成长": "GrowthCompounderStrategy",
+    "长线复利": "GrowthCompounderStrategy",
+    "GrowthCompounder": "GrowthCompounderStrategy",
+    "Compounder": "GrowthCompounderStrategy",
     "RSI 极限超跌": "RSIDivergenceReboundStrategy",
     "双底背离": "RSIDivergenceReboundStrategy",
     "RSI": "RSIDivergenceReboundStrategy",
@@ -211,20 +227,34 @@ def get_strategy_playbook(
 def format_playbook_html(playbook: Dict[str, str]) -> str:
     """
     生成适用于各类邮件客户端（QQ邮箱、Gmail、Outlook等）的实战指南 HTML 卡片。
-    采用高兼容性内联 CSS，双主题自适应浅蓝底色。
+    采用高兼容性内联 CSS，根据策略类别自适应主题色（核心资产长线为尊贵翡翠金，其余为雅致浅蓝）。
     """
+    category_text = playbook.get("category", "")
+    is_compounder = "🏆" in category_text or "长线复利" in category_text
+
+    if is_compounder:
+        border_color = "#059669"
+        bg_color = "linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)"
+        title_color = "#065f46"
+        badge_style = "background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0;"
+    else:
+        border_color = "#2563eb"
+        bg_color = "#f8fafc"
+        title_color = "#1e40af"
+        badge_style = "background-color: #e0f2fe; color: #0369a1;"
+
     category_badge = ""
-    if playbook.get("category"):
+    if category_text:
         category_badge = (
-            f'<span style="display: inline-block; background-color: #e0f2fe; color: #0369a1; '
+            f'<span style="display: inline-block; {badge_style} '
             f'font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 9999px; '
-            f'margin-left: 8px; vertical-align: middle;">{playbook["category"]}</span>'
+            f'margin-left: 8px; vertical-align: middle;">{category_text}</span>'
         )
 
     html = f"""
-<div style="background-color: #f8fafc; border-left: 4px solid #2563eb; border-radius: 6px; padding: 12px 16px; margin: 8px 0 14px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; line-height: 1.6; color: #334155; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+<div style="background: {bg_color}; border-left: 4px solid {border_color}; border-radius: 6px; padding: 12px 16px; margin: 8px 0 14px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; line-height: 1.6; color: #334155; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
   <div style="margin-bottom: 8px;">
-    <strong style="color: #1e40af; font-size: 13.5px;">🎯 策略目的：</strong>
+    <strong style="color: {title_color}; font-size: 13.5px;">🎯 策略目的：</strong>
     <span style="color: #1e293b;">{playbook.get('purpose', '')}</span>
     {category_badge}
   </div>

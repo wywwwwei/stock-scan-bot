@@ -1,4 +1,5 @@
 from typing import Dict, List
+from strategy.growth_compounder import GrowthCompounderStrategy
 from strategy.volume_surge import VolumeSurgeStrategy
 from strategy.ma_cross import MACrossStrategy
 from strategy.cd_signal import CDSignalStrategy
@@ -16,6 +17,7 @@ from strategy.penny_inside_bar_retest import PennyInsideBarRetestStrategy
 
 # ===== 默认策略（未在 STOCK_STRATEGY_MAP 中单独指定的股票使用）=====
 EXECUTE_STRATEGIES = [
+    GrowthCompounderStrategy(),
     CDSignalStrategy(),
     MACrossStrategy(),
     VolumeSurgeStrategy(),

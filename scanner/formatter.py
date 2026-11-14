@@ -45,7 +45,10 @@ def format_results_text(
         lines.append("-" * 60)
 
         if df.empty:
-            lines.append("今日没有找到符合条件的股票。")
+            if strategy_name == "GrowthCompounderStrategy":
+                lines.append("今日全美股未找到兼具 15%+ 营收高增与 Stage 2 突破形态的长持标的（宁缺毋滥，保持耐心）。")
+            else:
+                lines.append("今日没有找到符合条件的股票。")
         else:
             column_widths = {
                 col: max(df[col].astype(str).apply(len).max(), len(col))
@@ -70,6 +73,60 @@ def format_results_text(
         return "本次扫描未发现符合条件的股票。"
 
     return "\n".join(lines)
+
+
+def _format_growth_compounder_table_html(df: pd.DataFrame) -> str:
+    """
+    为欧奈尔 CAN SLIM 价值成长复利策略定制的高对比度、信息层级清晰的 HTML 表格。
+    将核心增长指标（Rev Growth, ROE, Growth Score）高亮展示，形态标签采用胶囊徽章。
+    """
+    if df.empty:
+        return ""
+
+    headers = [col for col in df.columns]
+    th_cells = "".join(
+        [
+            f"<th style='background: linear-gradient(135deg, #065f46 0%, #047857 100%); color: #ffffff; padding: 9px 12px; font-size: 12.5px; border: 1px solid #047857; text-align: left;'>{h}</th>"
+            for h in headers
+        ]
+    )
+
+    rows_html = []
+    for idx, row in df.iterrows():
+        bg = "#f0fdf4" if idx % 2 == 1 else "#ffffff"
+        td_cells = []
+        for col in headers:
+            val = str(row[col])
+            if col == "Symbol":
+                td_cells.append(
+                    f"<td style='padding: 8px 12px; border: 1px solid #d1fae5; font-weight: 700; color: #065f46; font-size: 13.5px;'>{val}</td>"
+                )
+            elif col == "Setup":
+                if "突破" in val:
+                    badge = f"<span style='background-color: #dcfce7; color: #15803d; font-weight: 600; padding: 2px 7px; border-radius: 4px; font-size: 11.5px;'>{val}</span>"
+                else:
+                    badge = f"<span style='background-color: #e0f2fe; color: #0369a1; font-weight: 600; padding: 2px 7px; border-radius: 4px; font-size: 11.5px;'>{val}</span>"
+                td_cells.append(f"<td style='padding: 8px 12px; border: 1px solid #d1fae5;'>{badge}</td>")
+            elif col == "Growth Score":
+                badge = f"<span style='background-color: #fef3c7; color: #b45309; font-weight: 700; padding: 2px 8px; border-radius: 4px; font-size: 12.5px;'>{val}</span>"
+                td_cells.append(f"<td style='padding: 8px 12px; border: 1px solid #d1fae5;'>{badge}</td>")
+            elif col in ("Rev Growth", "EPS Growth", "ROE", "Op Margin"):
+                td_cells.append(
+                    f"<td style='padding: 8px 12px; border: 1px solid #d1fae5; color: #047857; font-weight: 600;'>{val}</td>"
+                )
+            else:
+                td_cells.append(
+                    f"<td style='padding: 8px 12px; border: 1px solid #d1fae5; color: #1e293b;'>{val}</td>"
+                )
+        rows_html.append(f"<tr style='background-color: {bg};'>{''.join(td_cells)}</tr>")
+
+    table_html = f"""
+<table style='border-collapse: collapse; width: 100%; margin: 10px 0 16px 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 13px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); border-radius: 6px; overflow: hidden;'>
+  <thead><tr>{th_cells}</tr></thead>
+  <tbody>{''.join(rows_html)}</tbody>
+</table>
+"""
+    return table_html.strip()
 
 
 def format_results_for_email(
@@ -122,12 +179,24 @@ def format_results_for_email(
         html_content += playbook_html + "\n"
 
         if df.empty:
-            html_content += "<p style='color: #64748b; font-style: italic; margin: 8px 0 14px 0;'>今日没有找到符合条件的股票。</p>\n"
+            if strategy_name == "GrowthCompounderStrategy":
+                html_content += (
+                    "<div style='background-color: #f0fdf4; border: 1px dashed #86efac; border-radius: 6px; padding: 12px 16px; margin: 8px 0 14px 0; color: #166534; font-size: 13px;'>\n"
+                    "  ⏳ <strong>今日全美股未出现兼具 15%+ 高速成长与 Stage 2 突破形态的标的。</strong><br>\n"
+                    "  <span style='font-size: 12px; color: #15803d;'>（核心理念：长线复利宁缺毋滥，严格执行基本面与技术面双重门槛，保持耐心等待好公司跌出黄金坑或强势放量突破）。</span>\n"
+                    "</div>\n"
+                )
+            else:
+                html_content += "<p style='color: #64748b; font-style: italic; margin: 8px 0 14px 0;'>今日没有找到符合条件的股票。</p>\n"
         else:
-            html_table = df.to_html(
-                index=False, table_id=f"results_{strategy_name.lower()}"
-            )
-            html_content += html_table + "\n"
+            if strategy_name == "GrowthCompounderStrategy":
+                html_table = _format_growth_compounder_table_html(df)
+                html_content += html_table + "\n"
+            else:
+                html_table = df.to_html(
+                    index=False, table_id=f"results_{strategy_name.lower()}"
+                )
+                html_content += html_table + "\n"
 
         html_content += "<hr style='border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;'>\n"
 

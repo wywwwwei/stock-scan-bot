@@ -28,6 +28,7 @@ class MarketRegimeResult:
     temperature: str         # "80°C (火热)" / "92°C (过热)" / "45°C (温凉)" / "22°C (冰点)"
     bias_color: str          # "#10b981" (绿/涨) / "#f59e0b" (橙) / "#3b82f6" (蓝) / "#ef4444" (红)
     tactical_guidance: str   # 针对性操作指引
+    macro_narrative: str = "" # 全球大类资产与中国股债跨资产一句话主线定调
     qqq: Optional[IndexSnapshot] = None
     spy: Optional[IndexSnapshot] = None
     # 全球大类资产联动：金银、油气、加密货币
@@ -113,6 +114,10 @@ class MarketRegimeResult:
             lines.extend(macro_lines)
             lines.append("--------------------------------------------------")
 
+        if self.macro_narrative:
+            lines.append(f"🌐 宏观主线: {self.macro_narrative}")
+            lines.append("--------------------------------------------------")
+
         lines.append(f"战术指引: {self.tactical_guidance}")
         lines.append("==================================================")
         return "\n".join(lines)
@@ -185,8 +190,13 @@ class MarketRegimeResult:
                     f"<div>🏢 <b>中国信用债：</b>城投债 {ct_str} &nbsp;|&nbsp; 公司债 {cp_str}</div>"
                 )
 
+            narrative_html = ""
+            if self.macro_narrative:
+                narrative_html = f"<div style='margin-bottom: 6px; padding: 6px 10px; background-color: #f1f5f9; border-left: 3px solid #0284c7; border-radius: 4px; font-size: 12.5px; color: #0f172a;'>🌐 <b>大类资产主线定调：</b><span style='color: #0369a1; font-weight: 600;'>{self.macro_narrative}</span></div>"
+
             macro_html = f"""
     <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 12px; margin-top: 6px; font-size: 12.5px; color: #334155;">
+      {narrative_html}
       {''.join(macro_items)}
     </div>
 """
@@ -264,6 +274,60 @@ def _calc_snapshot(
     )
 
 
+def _generate_macro_narrative(
+    ref: Optional[IndexSnapshot],
+    gold: Optional[IndexSnapshot],
+    oil: Optional[IndexSnapshot],
+    btc: Optional[IndexSnapshot],
+    cgb_30y: Optional[IndexSnapshot],
+    cgb_10y: Optional[IndexSnapshot],
+    credit_chengtou: Optional[IndexSnapshot],
+) -> str:
+    """
+    根据美股大盘、大宗商品、加密数字资产与中国债券走势，综合提炼一句话跨资产宏观主线定调。
+    """
+    parts = []
+
+    # 1. 美股与全球风险偏好
+    if ref:
+        if ref.is_above_ma20 and ref.change_1d_pct >= 0:
+            parts.append("美股大盘顺风上攻，全球风险偏好(Risk-On)积极")
+        elif ref.is_above_ma20:
+            parts.append("美股维持高位均线多头震荡，整体风险偏好稳定")
+        elif ref.is_above_ma50:
+            parts.append("美股回踩均线支撑蓄力，资金偏向防御与结构性博弈")
+        else:
+            parts.append("美股均线破位承压，全球避险防御情绪升温")
+
+    # 2. 数字资产投机流动性
+    if btc:
+        if btc.change_1d_pct > 1.5 or btc.is_above_ma20:
+            parts.append("加密投机流动性活跃")
+        elif btc.change_1d_pct < -2.0:
+            parts.append("加密投机流动性边际收缩")
+
+    # 3. 大宗能源与通胀预期
+    if oil and gold:
+        if oil.change_1d_pct < 0 and gold.change_1d_pct >= 0:
+            parts.append("油气回落平抑通胀预期，金银受避险配置支撑")
+        elif oil.change_1d_pct > 1.5:
+            parts.append("油价走高带来局部通胀扰动")
+        elif gold.change_1d_pct > 1.0:
+            parts.append("金银强势上行，避险配置需求凸显")
+
+    # 4. 中国长短利率债与信用债
+    if cgb_30y or cgb_10y:
+        bond_up = (cgb_30y and cgb_30y.change_1d_pct >= 0) or (cgb_10y and cgb_10y.change_1d_pct >= 0)
+        if bond_up:
+            parts.append("中国超长端国债走强，国内资产荒与降息宽松预期主导")
+        else:
+            parts.append("中国债市阶段性震荡，中美利差高位盘整")
+
+    if not parts:
+        return "全球大类资产与跨市场流动性整体处于中性平衡区间。"
+    return "；".join(parts) + "。"
+
+
 def detect_market_regime(datasource) -> MarketRegimeResult:
     """
     通过行情源拉取 QQQ、SPY 以及全球大类资产（金银、油气、加密货币、中国长短利率债与信用债）历史，
@@ -311,6 +375,16 @@ def detect_market_regime(datasource) -> MarketRegimeResult:
 
     # 依据 QQQ（主科技/成长）与 SPY（大盘基准）综合定级
     ref = qqq_snap if qqq_snap else spy_snap
+    macro_narrative = _generate_macro_narrative(
+        ref=ref,
+        gold=gold_snap,
+        oil=oil_snap,
+        btc=btc_snap,
+        cgb_30y=cgb_30y_snap,
+        cgb_10y=cgb_10y_snap,
+        credit_chengtou=credit_chengtou_snap,
+    )
+
     if not ref:
         return MarketRegimeResult(
             regime_name="大盘数据未就绪",
@@ -318,6 +392,7 @@ def detect_market_regime(datasource) -> MarketRegimeResult:
             temperature="--",
             bias_color="#64748b",
             tactical_guidance="无法获取大盘基准指数行情，请维持常规风控仓位。",
+            macro_narrative=macro_narrative,
             gold=gold_snap,
             silver=silver_snap,
             oil=oil_snap,
@@ -340,6 +415,7 @@ def detect_market_regime(datasource) -> MarketRegimeResult:
             temperature="90°C (极度过热)",
             bias_color="#f59e0b",
             tactical_guidance="大盘涨幅过大且处于极端超买区，历史数据显示追涨极易遭遇急跌洗盘！建议分批减仓止盈，严禁追高放量阳线与高位新高。",
+            macro_narrative=macro_narrative,
             qqq=qqq_snap,
             spy=spy_snap,
             gold=gold_snap,
@@ -363,6 +439,7 @@ def detect_market_regime(datasource) -> MarketRegimeResult:
             temperature="75°C (健康活跃)",
             bias_color="#10b981",
             tactical_guidance="大盘处于健康多头顺风通道，动量持续性较好。可积极参与【机构口袋支点】、【波动率挤压变盘】等右侧起爆策略，止盈设在 +5%~+8%。",
+            macro_narrative=macro_narrative,
             qqq=qqq_snap,
             spy=spy_snap,
             gold=gold_snap,
@@ -386,6 +463,7 @@ def detect_market_regime(datasource) -> MarketRegimeResult:
             temperature="25°C (冰点区)",
             bias_color="#ef4444",
             tactical_guidance="大盘跌破关键均线处于恐慌下行期。以现金防守为主，严禁追突破！仅允许轻仓博弈极低估的【RSI双底背离】与【威科夫极度缩量弹簧坑】短线反抽。",
+            macro_narrative=macro_narrative,
             qqq=qqq_snap,
             spy=spy_snap,
             gold=gold_snap,
@@ -408,6 +486,7 @@ def detect_market_regime(datasource) -> MarketRegimeResult:
         temperature="45°C (震荡洗盘)",
         bias_color="#3b82f6",
         tactical_guidance="大盘处于均线回踩震荡洗盘期（历史实测此时胜率高达 60%+）。重点布局【波动率挤压变盘】与【底部威科夫/MACD底背离/仙股接力】抗跌标的，迎接共振拐点！",
+        macro_narrative=macro_narrative,
         qqq=qqq_snap,
         spy=spy_snap,
         gold=gold_snap,

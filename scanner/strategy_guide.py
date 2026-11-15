@@ -273,6 +273,74 @@ def format_playbook_html(playbook: Dict[str, str]) -> str:
     return html.strip()
 
 
+def format_playbook_compact_badge_html(
+    playbook: Dict[str, str], anchor_id: str = ""
+) -> str:
+    """
+    生成极简单行胶囊标签，包含核心分类、持仓周期、止盈目标与止损防守，并附带跳转到底部实战手册的锚点。
+    """
+    category_text = playbook.get("category", "")
+    is_compounder = "🏆" in category_text or "长线复利" in category_text
+
+    badge_bg = "#ecfdf5" if is_compounder else "#f0f9ff"
+    badge_color = "#065f46" if is_compounder else "#0369a1"
+    badge_border = "#a7f3d0" if is_compounder else "#bae6fd"
+
+    # 提取精简周期与盈亏比
+    holding = playbook.get("holding_period", "").split("（")[0].strip()
+    tp = playbook.get("take_profit", "").split("；")[0].split("，")[0].strip()
+    sl = playbook.get("stop_loss", "").split("（")[0].split("，")[0].strip()
+
+    anchor_html = ""
+    if anchor_id:
+        anchor_html = f'<a href="#{anchor_id}" style="color: #2563eb; text-decoration: none; font-weight: 500; font-size: 11.5px; margin-left: 6px;">[📖 详见手册↓]</a>'
+
+    html = f"""
+<div style="margin: 4px 0 10px 0; font-size: 12px; color: #475569; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+  <span style="background-color: {badge_bg}; color: {badge_color}; border: 1px solid {badge_border}; font-weight: 600; padding: 1px 7px; border-radius: 4px; font-size: 11px;">{category_text}</span>
+  <span>⏱️ 周期: <b>{holding}</b></span>
+  <span style="color: #cbd5e1;">|</span>
+  <span>🎯 止盈: <b>{tp}</b></span>
+  <span style="color: #cbd5e1;">|</span>
+  <span>🛡️ 止损: <b style="color: #dc2626;">{sl}</b></span>
+  {anchor_html}
+</div>
+"""
+    return html.strip()
+
+
+def format_all_playbooks_appendix_html(strategy_keys: list) -> str:
+    """
+    生成放置于邮件最底部的《📚 量化策略实战交易手册与风控附录》，包含所有执行策略的完整原理与实战细节，
+    支持从上方策略表格一键锚点平滑跳转，同时提供回到顶部的便捷链接。
+    """
+    cards = []
+    for key in strategy_keys:
+        playbook = get_strategy_playbook(key)
+        anchor_id = f"appendix-{key.lower()}"
+        card_html = format_playbook_html(playbook)
+        card_wrapper = f"""
+<div id="{anchor_id}" style="margin-bottom: 16px;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+    <span style="font-size: 13px; font-weight: 700; color: #1e293b;">📘 {playbook.get('title', key)} 实战档案</span>
+    <a href="#top" style="color: #64748b; font-size: 11.5px; text-decoration: none;">[↑ 回到顶部]</a>
+  </div>
+  {card_html}
+</div>
+"""
+        cards.append(card_wrapper)
+
+    return f"""
+<div style="margin-top: 32px; padding: 16px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+  <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; margin-bottom: 14px;">
+    <span style="font-size: 15px; font-weight: 700; color: #0f172a;">📚 附录：量化策略交易实战手册与风控字典 (Playbooks Appendix)</span>
+    <span style="font-size: 12px; color: #64748b;">支持点击正文 [📖 详见手册↓] 直达</span>
+  </div>
+  {''.join(cards)}
+</div>
+""".strip()
+
+
 def format_playbook_text(playbook: Dict[str, str]) -> str:
     """
     生成适用于控制台纯文本输出的实战指南。

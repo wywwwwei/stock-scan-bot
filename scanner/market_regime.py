@@ -37,6 +37,12 @@ class MarketRegimeResult:
     gas: Optional[IndexSnapshot] = None     # 天然气 (NG=F)
     btc: Optional[IndexSnapshot] = None     # 比特币 (BTC-USD)
     eth: Optional[IndexSnapshot] = None     # 以太币 (ETH-USD)
+    # 中国长短端利率债与信用债联动
+    cgb_30y: Optional[IndexSnapshot] = None    # 30年国债ETF (511090.SS, 超长端利率)
+    cgb_10y: Optional[IndexSnapshot] = None    # 10年国债ETF (511260.SS, 长端基准利率)
+    cgb_short: Optional[IndexSnapshot] = None  # 短融ETF (511360.SS, 短端利率与流动性)
+    credit_chengtou: Optional[IndexSnapshot] = None  # 城投债ETF (511220.SS, 城投信用)
+    credit_corp: Optional[IndexSnapshot] = None      # 公司债ETF (511030.SS, 产业公司信用)
 
     def to_text(self) -> str:
         lines = [
@@ -84,6 +90,24 @@ class MarketRegimeResult:
                 cryptos.append(f"ETH ${self.eth.close:,.2f} ({'+' if self.eth.change_1d_pct>=0 else ''}{self.eth.change_1d_pct:.2f}%)")
             macro_lines.append(f"⚡ 数字资产: {' | '.join(cryptos)}")
 
+        if self.cgb_30y or self.cgb_10y or self.cgb_short:
+            cgbs = []
+            if self.cgb_30y:
+                cgbs.append(f"30年超长债 ${self.cgb_30y.close:.2f} ({'+' if self.cgb_30y.change_1d_pct>=0 else ''}{self.cgb_30y.change_1d_pct:.2f}%)")
+            if self.cgb_10y:
+                cgbs.append(f"10年基准债 ${self.cgb_10y.close:.2f} ({'+' if self.cgb_10y.change_1d_pct>=0 else ''}{self.cgb_10y.change_1d_pct:.2f}%)")
+            if self.cgb_short:
+                cgbs.append(f"短融 ${self.cgb_short.close:.2f} ({'+' if self.cgb_short.change_1d_pct>=0 else ''}{self.cgb_short.change_1d_pct:.2f}%)")
+            macro_lines.append(f"🇨🇳 中国利率债: {' | '.join(cgbs)}")
+
+        if self.credit_chengtou or self.credit_corp:
+            credits = []
+            if self.credit_chengtou:
+                credits.append(f"城投债 ${self.credit_chengtou.close:.2f} ({'+' if self.credit_chengtou.change_1d_pct>=0 else ''}{self.credit_chengtou.change_1d_pct:.2f}%)")
+            if self.credit_corp:
+                credits.append(f"公司债 ${self.credit_corp.close:.2f} ({'+' if self.credit_corp.change_1d_pct>=0 else ''}{self.credit_corp.change_1d_pct:.2f}%)")
+            macro_lines.append(f"🏢 中国信用债: {' | '.join(credits)}")
+
         if macro_lines:
             lines.append("--------------------------------------------------")
             lines.extend(macro_lines)
@@ -123,7 +147,10 @@ class MarketRegimeResult:
             return f"<b>{price_str}</b> (<span style='color:{color}'><b>{sign}{snap.change_1d_pct:.2f}%</b></span>)"
 
         macro_html = ""
-        has_macro = any([self.gold, self.silver, self.oil, self.gas, self.btc, self.eth])
+        has_macro = any([
+            self.gold, self.silver, self.oil, self.gas, self.btc, self.eth,
+            self.cgb_30y, self.cgb_10y, self.cgb_short, self.credit_chengtou, self.credit_corp
+        ])
         if has_macro:
             macro_items = []
             if self.gold or self.silver:
@@ -142,7 +169,20 @@ class MarketRegimeResult:
                 b_str = _format_asset_badge(self.btc)
                 e_str = _format_asset_badge(self.eth)
                 macro_items.append(
-                    f"<div>⚡ <b>数字资产：</b>比特币 {b_str} &nbsp;|&nbsp; 以太币 {e_str}</div>"
+                    f"<div style='margin-bottom: 4px;'>⚡ <b>数字资产：</b>比特币 {b_str} &nbsp;|&nbsp; 以太币 {e_str}</div>"
+                )
+            if self.cgb_30y or self.cgb_10y or self.cgb_short:
+                c30_str = _format_asset_badge(self.cgb_30y)
+                c10_str = _format_asset_badge(self.cgb_10y)
+                cs_str = _format_asset_badge(self.cgb_short)
+                macro_items.append(
+                    f"<div style='margin-bottom: 4px;'>🇨🇳 <b>中国利率债：</b>30年超长债 {c30_str} &nbsp;|&nbsp; 10年基准债 {c10_str} &nbsp;|&nbsp; 短融/短端 {cs_str}</div>"
+                )
+            if self.credit_chengtou or self.credit_corp:
+                ct_str = _format_asset_badge(self.credit_chengtou)
+                cp_str = _format_asset_badge(self.credit_corp)
+                macro_items.append(
+                    f"<div>🏢 <b>中国信用债：</b>城投债 {ct_str} &nbsp;|&nbsp; 公司债 {cp_str}</div>"
                 )
 
             macro_html = f"""
@@ -226,10 +266,13 @@ def _calc_snapshot(
 
 def detect_market_regime(datasource) -> MarketRegimeResult:
     """
-    通过行情源拉取 QQQ、SPY 以及全球大类资产（金银、油气、加密货币）历史，
+    通过行情源拉取 QQQ、SPY 以及全球大类资产（金银、油气、加密货币、中国长短利率债与信用债）历史，
     评估当前大盘宏观状态、情绪温度与跨资产联动指引。
     """
-    symbols = ["QQQ", "SPY", "GC=F", "SI=F", "CL=F", "NG=F", "BTC-USD", "ETH-USD"]
+    symbols = [
+        "QQQ", "SPY", "GC=F", "SI=F", "CL=F", "NG=F", "BTC-USD", "ETH-USD",
+        "511090.SS", "511260.SS", "511360.SS", "511220.SS", "511030.SS"
+    ]
     histories: Dict[str, pd.DataFrame] = {}
 
     # 优先采用批量拉取接口
@@ -260,6 +303,12 @@ def detect_market_regime(datasource) -> MarketRegimeResult:
     btc_snap = _calc_snapshot("BTC-USD", histories.get("BTC-USD"), name="比特币", unit="USD")
     eth_snap = _calc_snapshot("ETH-USD", histories.get("ETH-USD"), name="以太币", unit="USD")
 
+    cgb_30y_snap = _calc_snapshot("511090.SS", histories.get("511090.SS"), name="30年国债ETF")
+    cgb_10y_snap = _calc_snapshot("511260.SS", histories.get("511260.SS"), name="10年国债ETF")
+    cgb_short_snap = _calc_snapshot("511360.SS", histories.get("511360.SS"), name="短融ETF")
+    credit_chengtou_snap = _calc_snapshot("511220.SS", histories.get("511220.SS"), name="城投债ETF")
+    credit_corp_snap = _calc_snapshot("511030.SS", histories.get("511030.SS"), name="公司债ETF")
+
     # 依据 QQQ（主科技/成长）与 SPY（大盘基准）综合定级
     ref = qqq_snap if qqq_snap else spy_snap
     if not ref:
@@ -275,6 +324,11 @@ def detect_market_regime(datasource) -> MarketRegimeResult:
             gas=gas_snap,
             btc=btc_snap,
             eth=eth_snap,
+            cgb_30y=cgb_30y_snap,
+            cgb_10y=cgb_10y_snap,
+            cgb_short=cgb_short_snap,
+            credit_chengtou=credit_chengtou_snap,
+            credit_corp=credit_corp_snap,
         )
 
     # 判断规则：
@@ -294,6 +348,11 @@ def detect_market_regime(datasource) -> MarketRegimeResult:
             gas=gas_snap,
             btc=btc_snap,
             eth=eth_snap,
+            cgb_30y=cgb_30y_snap,
+            cgb_10y=cgb_10y_snap,
+            cgb_short=cgb_short_snap,
+            credit_chengtou=credit_chengtou_snap,
+            credit_corp=credit_corp_snap,
         )
 
     # 2. 顺风多头进攻
@@ -312,6 +371,11 @@ def detect_market_regime(datasource) -> MarketRegimeResult:
             gas=gas_snap,
             btc=btc_snap,
             eth=eth_snap,
+            cgb_30y=cgb_30y_snap,
+            cgb_10y=cgb_10y_snap,
+            cgb_short=cgb_short_snap,
+            credit_chengtou=credit_chengtou_snap,
+            credit_corp=credit_corp_snap,
         )
 
     # 3. 恐慌破位防守
@@ -330,6 +394,11 @@ def detect_market_regime(datasource) -> MarketRegimeResult:
             gas=gas_snap,
             btc=btc_snap,
             eth=eth_snap,
+            cgb_30y=cgb_30y_snap,
+            cgb_10y=cgb_10y_snap,
+            cgb_short=cgb_short_snap,
+            credit_chengtou=credit_chengtou_snap,
+            credit_corp=credit_corp_snap,
         )
 
     # 4. 逆风回踩蓄力（其余默认区间，往往为大盘震荡洗盘、拐点孕育期）
@@ -347,4 +416,9 @@ def detect_market_regime(datasource) -> MarketRegimeResult:
         gas=gas_snap,
         btc=btc_snap,
         eth=eth_snap,
+        cgb_30y=cgb_30y_snap,
+        cgb_10y=cgb_10y_snap,
+        cgb_short=cgb_short_snap,
+        credit_chengtou=credit_chengtou_snap,
+        credit_corp=credit_corp_snap,
     )

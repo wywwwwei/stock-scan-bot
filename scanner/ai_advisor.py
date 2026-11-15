@@ -200,6 +200,44 @@ def _format_context_for_ai(
                     f"5日: {'+' if eth.change_5d_pct >= 0 else ''}{eth.change_5d_pct:.2f}%, RSI: {eth.rsi14:.1f}, 距MA20: {eth.dist_ma20_pct:+.1f}%)"
                 )
 
+        cgb_30y = getattr(market_regime, "cgb_30y", None)
+        cgb_10y = getattr(market_regime, "cgb_10y", None)
+        cgb_short = getattr(market_regime, "cgb_short", None)
+        if cgb_30y or cgb_10y or cgb_short:
+            has_macro = True
+            lines.append("- 🇨🇳 中国长短端利率债（无风险利率走势 / 资产荒与降息宽松预期）:")
+            if cgb_30y:
+                lines.append(
+                    f"  * 30年超长国债 (511090.SS): ${cgb_30y.close:.2f} (日内: {'+' if cgb_30y.change_1d_pct >= 0 else ''}{cgb_30y.change_1d_pct:.2f}%, "
+                    f"5日: {'+' if cgb_30y.change_5d_pct >= 0 else ''}{cgb_30y.change_5d_pct:.2f}%, RSI: {cgb_30y.rsi14:.1f}, 距MA20: {cgb_30y.dist_ma20_pct:+.2f}%)"
+                )
+            if cgb_10y:
+                lines.append(
+                    f"  * 10年基准国债 (511260.SS): ${cgb_10y.close:.2f} (日内: {'+' if cgb_10y.change_1d_pct >= 0 else ''}{cgb_10y.change_1d_pct:.2f}%, "
+                    f"5日: {'+' if cgb_10y.change_5d_pct >= 0 else ''}{cgb_10y.change_5d_pct:.2f}%, RSI: {cgb_10y.rsi14:.1f}, 距MA20: {cgb_10y.dist_ma20_pct:+.2f}%)"
+                )
+            if cgb_short:
+                lines.append(
+                    f"  * 短端利率流动性/短融 (511360.SS): ${cgb_short.close:.2f} (日内: {'+' if cgb_short.change_1d_pct >= 0 else ''}{cgb_short.change_1d_pct:.2f}%, "
+                    f"5日: {'+' if cgb_short.change_5d_pct >= 0 else ''}{cgb_short.change_5d_pct:.2f}%, RSI: {cgb_short.rsi14:.1f}, 距MA20: {cgb_short.dist_ma20_pct:+.2f}%)"
+                )
+
+        credit_chengtou = getattr(market_regime, "credit_chengtou", None)
+        credit_corp = getattr(market_regime, "credit_corp", None)
+        if credit_chengtou or credit_corp:
+            has_macro = True
+            lines.append("- 🏢 中国信用债与城投（信用利差 / 化债进程 / 实体债务环境）:")
+            if credit_chengtou:
+                lines.append(
+                    f"  * 城投债ETF (511220.SS): ${credit_chengtou.close:.2f} (日内: {'+' if credit_chengtou.change_1d_pct >= 0 else ''}{credit_chengtou.change_1d_pct:.2f}%, "
+                    f"5日: {'+' if credit_chengtou.change_5d_pct >= 0 else ''}{credit_chengtou.change_5d_pct:.2f}%, RSI: {credit_chengtou.rsi14:.1f}, 距MA20: {credit_chengtou.dist_ma20_pct:+.2f}%)"
+                )
+            if credit_corp:
+                lines.append(
+                    f"  * 公司债ETF (511030.SS): ${credit_corp.close:.2f} (日内: {'+' if credit_corp.change_1d_pct >= 0 else ''}{credit_corp.change_1d_pct:.2f}%, "
+                    f"5日: {'+' if credit_corp.change_5d_pct >= 0 else ''}{credit_corp.change_5d_pct:.2f}%, RSI: {credit_corp.rsi14:.1f}, 距MA20: {credit_corp.dist_ma20_pct:+.2f}%)"
+                )
+
         if not has_macro:
             lines.append("- 暂未获取到宏观大类资产行情数据")
     else:
@@ -268,17 +306,20 @@ def generate_ai_advice(
 
     system_prompt = (
         "你是一名经验丰富的华尔街资深美股量化交易员与宏观跨资产对冲基金经理，擅长结合全球大类资产联动（金银避险/实际利率、"
-        "原油天然气/通胀预期、比特币以太币/全球投机流动性）与经典量化形态（欧奈尔 CAN SLIM 价值成长、机构口袋支点、威科夫弹簧坑、"
-        "MACD水下底背离、TTM变盘挤压等）进行跨市场综合裁决。\n"
-        "请根据机器人盘后自动抓取的“大盘宏观感知”、“全球大类资产行情（金银、油气、加密货币）”和“多策略命中股票清单”，进行高水平的实战复盘与跨资产交易内参。\n\n"
+        "原油天然气/通胀预期、比特币以太币/全球投机流动性、中国长短利率债与信用债/化债与宏观流动性）与经典量化形态（欧奈尔 CAN SLIM 价值成长、"
+        "机构口袋支点、威科夫弹簧坑、MACD水下底背离、TTM变盘挤压等）进行跨市场综合裁决。\n"
+        "请根据机器人盘后自动抓取的“大盘宏观感知”、“全球大类资产行情（金银、油气、加密货币、中国利率与信用债）”和“多策略命中股票清单”，进行高水平的实战复盘与跨资产交易内参。\n\n"
         "【输出要求】（保持客观专业、高信息密度、言简意赅，严禁空话套话，采用标准 Markdown 格式输出以下四个部分）：\n"
         "### 1. 🌍【大势定调与仓位策略】\n"
         "- 结合 QQQ/SPY 位置与情绪温度，明确大盘是顺风进攻还是逆风蓄力，给出建议总仓位上限（例如 50%~60%）。\n"
-        "### 2. 🌐【大类资产联动：金银、油气与加密资产微观复盘】\n"
+        "### 2. 🌐【全球大类资产与中国股债联动微观复盘】\n"
         "- 🪙 **金银避险与宏观流动性**：结合黄金与白银最新涨跌、5日趋势及 RSI，研判当前避险情绪强度、地缘扰动与美元/实际利率预期；\n"
         "- 🛢️ **油气大宗与通胀预期**：结合 WTI 原油与天然气价格异动，评估大宗商品对二次通胀压力与美联储降息周期的潜在冲击；\n"
         "- ⚡ **比特币/以太币与风险偏好**：结合 BTC 与 ETH 动量与超买超卖状态，研判全球投机流动性水温及对高估值科技股的领先情绪映射；\n"
-        "- 💡 **宏观跨资产对美股映射**：一句话提炼金银油币综合信号对美股（成长股 vs 价值防御股 / 进攻 vs 防守）的具体实操启示。\n"
+        "- 🇨🇳 **中国长短端利率债与信用债研判**：\n"
+        "  * 【利率债长短端分析】：结合 30 年超长国债、10 年基准国债与短端短融走势，分析中国资产荒博弈、长短端期限利差与央行货币流动性取向；\n"
+        "  * 【信用债与城投分析】：结合城投债与公司债表现，剖析一揽子化债背景下的信用利差走势与实体产业融资环境；\n"
+        "  * 【对中美利差与美股资产传导】：分析中美利差倒挂、汇率预期对中概股、大宗需求与全球风险资产的映射传导。\n"
         "### 3. ⭐【明日重点精选标的 Top 1~3】（若有标的命中）\n"
         "- 从命中的股票中精选出形态最扎实、胜率与盈亏比最优质的 1~3 只标的（若命中【CAN SLIM 价值成长复利】标的，请重点剖析其基本面与 Stage 2 结构，适合长线持有）：\n"
         "  * 推荐理由（为什么选它、基本面与量价核心优势）；\n"

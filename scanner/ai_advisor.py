@@ -126,7 +126,7 @@ def _format_context_for_ai(
     lines: List[str] = []
 
     # 1. 大盘宏观感知上下文
-    lines.append("【一、大盘宏观感知数据】")
+    lines.append("【一、美股大盘宏观感知数据】")
     if market_regime:
         lines.append(f"- 市场环境评级: {getattr(market_regime, 'regime_name', '未知')}")
         lines.append(f"- 情绪温度: {getattr(market_regime, 'temperature', '未知')}")
@@ -148,8 +148,67 @@ def _format_context_for_ai(
 
     lines.append("")
 
-    # 2. 策略命中股票初筛结果
-    lines.append("【二、多策略命中股票清单（含长线复利与短线动量）】")
+    # 2. 全球跨资产联动行情（金银、油气、加密货币）
+    lines.append("【二、全球跨资产联动最新走势（金银、油气、加密资产）】")
+    if market_regime:
+        has_macro = False
+        gold = getattr(market_regime, "gold", None)
+        silver = getattr(market_regime, "silver", None)
+        if gold or silver:
+            has_macro = True
+            lines.append("- 🪙 贵金属（避险属性 / 实际利率 / 抗通胀）:")
+            if gold:
+                lines.append(
+                    f"  * 黄金 (GC=F): ${gold.close:.2f} (日内: {'+' if gold.change_1d_pct >= 0 else ''}{gold.change_1d_pct:.2f}%, "
+                    f"5日: {'+' if gold.change_5d_pct >= 0 else ''}{gold.change_5d_pct:.2f}%, RSI: {gold.rsi14:.1f}, 距MA20: {gold.dist_ma20_pct:+.1f}%)"
+                )
+            if silver:
+                lines.append(
+                    f"  * 白银 (SI=F): ${silver.close:.2f} (日内: {'+' if silver.change_1d_pct >= 0 else ''}{silver.change_1d_pct:.2f}%, "
+                    f"5日: {'+' if silver.change_5d_pct >= 0 else ''}{silver.change_5d_pct:.2f}%, RSI: {silver.rsi14:.1f}, 距MA20: {silver.dist_ma20_pct:+.1f}%)"
+                )
+
+        oil = getattr(market_regime, "oil", None)
+        gas = getattr(market_regime, "gas", None)
+        if oil or gas:
+            has_macro = True
+            lines.append("- 🛢️ 能源大宗（通胀预期 / 工业需求与供给冲击）:")
+            if oil:
+                lines.append(
+                    f"  * WTI原油 (CL=F): ${oil.close:.2f} (日内: {'+' if oil.change_1d_pct >= 0 else ''}{oil.change_1d_pct:.2f}%, "
+                    f"5日: {'+' if oil.change_5d_pct >= 0 else ''}{oil.change_5d_pct:.2f}%, RSI: {oil.rsi14:.1f}, 距MA20: {oil.dist_ma20_pct:+.1f}%)"
+                )
+            if gas:
+                lines.append(
+                    f"  * 天然气 (NG=F): ${gas.close:.2f} (日内: {'+' if gas.change_1d_pct >= 0 else ''}{gas.change_1d_pct:.2f}%, "
+                    f"5日: {'+' if gas.change_5d_pct >= 0 else ''}{gas.change_5d_pct:.2f}%, RSI: {gas.rsi14:.1f}, 距MA20: {gas.dist_ma20_pct:+.1f}%)"
+                )
+
+        btc = getattr(market_regime, "btc", None)
+        eth = getattr(market_regime, "eth", None)
+        if btc or eth:
+            has_macro = True
+            lines.append("- ⚡ 加密数字资产（全球流动性水龙头 / 高Beta风险偏好温度计）:")
+            if btc:
+                lines.append(
+                    f"  * 比特币 (BTC-USD): ${btc.close:,.2f} (日内: {'+' if btc.change_1d_pct >= 0 else ''}{btc.change_1d_pct:.2f}%, "
+                    f"5日: {'+' if btc.change_5d_pct >= 0 else ''}{btc.change_5d_pct:.2f}%, RSI: {btc.rsi14:.1f}, 距MA20: {btc.dist_ma20_pct:+.1f}%)"
+                )
+            if eth:
+                lines.append(
+                    f"  * 以太币 (ETH-USD): ${eth.close:,.2f} (日内: {'+' if eth.change_1d_pct >= 0 else ''}{eth.change_1d_pct:.2f}%, "
+                    f"5日: {'+' if eth.change_5d_pct >= 0 else ''}{eth.change_5d_pct:.2f}%, RSI: {eth.rsi14:.1f}, 距MA20: {eth.dist_ma20_pct:+.1f}%)"
+                )
+
+        if not has_macro:
+            lines.append("- 暂未获取到宏观大类资产行情数据")
+    else:
+        lines.append("- 未提供大类资产行情数据")
+
+    lines.append("")
+
+    # 3. 策略命中股票初筛结果
+    lines.append("【三、多策略命中股票清单（含长线复利与短线动量）】")
     total_hits = 0
     collected_rows = 0
 
@@ -208,18 +267,24 @@ def generate_ai_advice(
     context_text = _format_context_for_ai(results, market_regime)
 
     system_prompt = (
-        "你是一名经验丰富的华尔街资深美股量化交易员与对冲基金经理，擅长结合大盘宏观感知（Market Regime）、"
-        "欧奈尔 CAN SLIM 基本面价值成长模型与经典量化技术形态（机构口袋支点、威科夫破底翻弹簧、MACD水下底背离、TTM挤压等）进行跨维度综合裁决。\n"
-        "请根据机器人盘后自动扫描出的“大盘感知指标”和“策略命中清单”，进行高水平的实战复盘与主观裁决。\n\n"
-        "【输出要求】（保持客观专业、高信息密度、言简意赅，严禁空话套话，采用标准 Markdown）：\n"
+        "你是一名经验丰富的华尔街资深美股量化交易员与宏观跨资产对冲基金经理，擅长结合全球大类资产联动（金银避险/实际利率、"
+        "原油天然气/通胀预期、比特币以太币/全球投机流动性）与经典量化形态（欧奈尔 CAN SLIM 价值成长、机构口袋支点、威科夫弹簧坑、"
+        "MACD水下底背离、TTM变盘挤压等）进行跨市场综合裁决。\n"
+        "请根据机器人盘后自动抓取的“大盘宏观感知”、“全球大类资产行情（金银、油气、加密货币）”和“多策略命中股票清单”，进行高水平的实战复盘与跨资产交易内参。\n\n"
+        "【输出要求】（保持客观专业、高信息密度、言简意赅，严禁空话套话，采用标准 Markdown 格式输出以下四个部分）：\n"
         "### 1. 🌍【大势定调与仓位策略】\n"
         "- 结合 QQQ/SPY 位置与情绪温度，明确大盘是顺风进攻还是逆风蓄力，给出建议总仓位上限（例如 50%~60%）。\n"
-        "### 2. ⭐【明日重点精选标的 Top 1~3】（若有标的命中）\n"
+        "### 2. 🌐【大类资产联动：金银、油气与加密资产微观复盘】\n"
+        "- 🪙 **金银避险与宏观流动性**：结合黄金与白银最新涨跌、5日趋势及 RSI，研判当前避险情绪强度、地缘扰动与美元/实际利率预期；\n"
+        "- 🛢️ **油气大宗与通胀预期**：结合 WTI 原油与天然气价格异动，评估大宗商品对二次通胀压力与美联储降息周期的潜在冲击；\n"
+        "- ⚡ **比特币/以太币与风险偏好**：结合 BTC 与 ETH 动量与超买超卖状态，研判全球投机流动性水温及对高估值科技股的领先情绪映射；\n"
+        "- 💡 **宏观跨资产对美股映射**：一句话提炼金银油币综合信号对美股（成长股 vs 价值防御股 / 进攻 vs 防守）的具体实操启示。\n"
+        "### 3. ⭐【明日重点精选标的 Top 1~3】（若有标的命中）\n"
         "- 从命中的股票中精选出形态最扎实、胜率与盈亏比最优质的 1~3 只标的（若命中【CAN SLIM 价值成长复利】标的，请重点剖析其基本面与 Stage 2 结构，适合长线持有）：\n"
         "  * 推荐理由（为什么选它、基本面与量价核心优势）；\n"
         "  * 买入时机与建议关注区间（开盘跟进还是回踩低吸）；\n"
         "  * 明确的防守止损位与目标止盈空间。\n"
-        "### 3. ⚠️【风险排雷与纪律告诫】\n"
+        "### 4. ⚠️【风险排雷与纪律告诫】\n"
         "- 针对命中股票中的仙股暴拉、高位长上影或假突破嫌疑标的，明确指出风险并告诫仓位控制。\n"
         "（如果今日无股票命中，请重点分析大盘关键多空防守位，并给出持币耐心等待的战术指引）。"
     )

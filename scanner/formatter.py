@@ -10,6 +10,22 @@ from scanner.strategy_guide import (
 
 MAX_DISPLAY_PER_STRATEGY = 5
 
+STRATEGY_SHORT_NAMES = {
+    "GrowthCompounderStrategy": "价值成长",
+    "PocketPivotStrategy": "口袋支点",
+    "NewHighBreakoutStrategy": "新高突破",
+    "TTMSqueezeStrategy": "TTM变盘",
+    "TrendPullbackStrategy": "趋势回踩",
+    "CDSignalStrategy": "MACD底背离",
+    "RSIDivergenceReboundStrategy": "RSI背离",
+    "VolumeSurgeStrategy": "放量大阳",
+    "MACrossStrategy": "均线金叉",
+    "PennyBaseIgnitionStrategy": "仙股起爆",
+    "PennyInsideBarRetestStrategy": "仙股孕线",
+    "PennyStealthAccumulationStrategy": "仙股潜伏",
+    "PennyWyckoffSpringStrategy": "威科夫弹簧",
+}
+
 
 def _calculate_confluence(results: Dict[str, pd.DataFrame]) -> Dict[str, List[str]]:
     """
@@ -126,10 +142,22 @@ def _format_executive_summary_html(
         levels = _calc_key_price_levels(first_strat, close_display)
 
         if len(strats) >= 2:
-            tag_badge = f"<span style='background-color: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px;'>🔥 {len(strats)}重共振</span>"
+            strat_labels = [STRATEGY_SHORT_NAMES.get(st, st) for st in strats]
+            confluence_text = " + ".join(strat_labels)
+            tag_badge = (
+                f"<span style='background-color: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; "
+                f"font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 4px;'>"
+                f"🔥 {len(strats)}重共振: {confluence_text}</span>"
+            )
         else:
-            strat_desc = strategy_metadata.get(first_strat, first_strat).split(" ")[0].replace("策略", "")
-            tag_badge = f"<span style='background-color: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px;'>{strat_desc}</span>"
+            short_name = STRATEGY_SHORT_NAMES.get(first_strat, "")
+            if not short_name:
+                short_name = strategy_metadata.get(first_strat, first_strat).split(" ")[0].replace("策略", "")
+            tag_badge = (
+                f"<span style='background-color: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; "
+                f"font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 4px;'>"
+                f"🎯 命中: {short_name}</span>"
+            )
 
         item = f"""
         <div style="margin: 5px 0; padding: 7px 12px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 12.5px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center;">
@@ -155,6 +183,15 @@ def _format_executive_summary_html(
     if narrative:
         narrative_line = f"<div style='margin-bottom: 8px; font-size: 12.5px; color: #0f172a; line-height: 1.5;'>🌐 <b>全球跨市场主线：</b><span style='color: #0369a1;'>{narrative}</span></div>"
 
+    bonds_strat = getattr(market_regime, "china_bonds_strategy", "") if market_regime else ""
+    bonds_strat_line = ""
+    if bonds_strat:
+        bonds_strat_line = (
+            f"<div style='margin-bottom: 8px; font-size: 12.5px; color: #14532d; line-height: 1.5; "
+            f"background: #f0fdf4; padding: 7px 11px; border-radius: 5px; border-left: 3px solid #16a34a;'>"
+            f"🇨🇳 <b>中国债市实操研判：</b>{bonds_strat}</div>"
+        )
+
     html = f"""
 <div id="top" style="background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); border: 1px solid #cbd5e1; border-left: 6px solid #2563eb; border-radius: 8px; padding: 14px 18px; margin-bottom: 22px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">
@@ -167,6 +204,7 @@ def _format_executive_summary_html(
     <b>建议仓位水位：</b><span style="color: #047857; font-weight: 700;">{suggested_pos}</span>
   </div>
   {narrative_line}
+  {bonds_strat_line}
   <div style="margin-top: 10px;">
     <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 6px;">🎯 今日 Top 核心共振/精选焦点池：</div>
     {picks_content}
@@ -227,7 +265,8 @@ def _format_strategy_table_html(
                 confluent_strats = confluence_map.get(symbol_val, [])
                 confluence_badge = ""
                 if len(confluent_strats) >= 2:
-                    confluence_badge = f"<span style='background-color: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; font-size: 10.5px; font-weight: 700; padding: 1px 5px; border-radius: 4px; margin-left: 6px;'>🔥 {len(confluent_strats)}重共振</span>"
+                    short_labels = [STRATEGY_SHORT_NAMES.get(st, st) for st in confluent_strats]
+                    confluence_badge = f"<span style='background-color: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; font-size: 10.5px; font-weight: 700; padding: 1px 5px; border-radius: 4px; margin-left: 6px;'>🔥 {len(confluent_strats)}重: {'+'.join(short_labels)}</span>"
                 
                 color_sym = "#065f46" if is_compounder else "#0f172a"
                 td_cells.append(
@@ -328,7 +367,10 @@ def format_results_text(
             if "Symbol" in df_print.columns:
                 def _mark_sym(s):
                     strats = confluence_map.get(str(s), [])
-                    return f"{s} (🔥{len(strats)}重共振)" if len(strats) >= 2 else str(s)
+                    if len(strats) >= 2:
+                        short_labels = [STRATEGY_SHORT_NAMES.get(st, st) for st in strats]
+                        return f"{s} (🔥{len(strats)}重:{'+'.join(short_labels)})"
+                    return str(s)
                 df_print["Symbol"] = df_print["Symbol"].apply(_mark_sym)
 
             # 加上关键位参考列

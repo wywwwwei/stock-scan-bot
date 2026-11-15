@@ -1,8 +1,14 @@
+import json
+import os
+import time
 import pandas as pd
 from typing import Dict, Any, Optional
 
 from strategy.base import BaseStrategy
 from scanner.fields import FieldKey
+
+CACHE_FILE_PATH = os.path.join(os.getcwd(), ".cache_fundamentals.json")
+CACHE_TTL_SECONDS = 30 * 86400  # 基本面财报数据缓存 30 天
 
 
 class GrowthCompounderStrategy(BaseStrategy):
@@ -28,8 +34,39 @@ class GrowthCompounderStrategy(BaseStrategy):
        - 移动止盈：以 MA50 作为生命线跟踪，跌破离场，持仓周期 1~6 个月 (T+20 ~ T+120)，实测盈亏比 3.66:1
     """
 
-    # 全局基本面缓存，防止多次重复网络请求
+    # 全局基本面缓存，防止多次重复网络请求与 429 限流
     _fundamental_cache: Dict[str, Dict[str, Any]] = {}
+    _persistent_loaded: bool = False
+
+    @classmethod
+    def _load_persistent_cache(cls) -> None:
+        if cls._persistent_loaded:
+            return
+        cls._persistent_loaded = True
+        if os.path.exists(CACHE_FILE_PATH):
+            try:
+                with open(CACHE_FILE_PATH, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    now = time.time()
+                    for sym, item in data.items():
+                        ts = item.get("_cached_at", 0)
+                        if now - ts < CACHE_TTL_SECONDS:
+                            cls._fundamental_cache[sym] = item.get("data", {})
+            except Exception:
+                pass
+
+    @classmethod
+    def _save_persistent_cache(cls) -> None:
+        try:
+            to_save = {}
+            now = time.time()
+            for sym, data in cls._fundamental_cache.items():
+                if data and data.get("market_cap", 0) > 0:
+                    to_save[sym] = {"_cached_at": now, "data": data}
+            with open(CACHE_FILE_PATH, "w", encoding="utf-8") as f:
+                json.dump(to_save, f, ensure_ascii=False)
+        except Exception:
+            pass
 
     def __init__(
         self,
@@ -78,9 +115,10 @@ class GrowthCompounderStrategy(BaseStrategy):
 
     def get_fundamentals(self, symbol: str) -> Dict[str, Any]:
         """
-        获取单只股票的基本面核心指标（支持内存缓存与安全降级）
+        获取单只股票的基本面核心指标（支持内存缓存、本地持久化与安全降级）
         """
-        if symbol in self._fundamental_cache:
+        self._load_persistent_cache()
+        if symbol in self._fundamental_cache and self._fundamental_cache[symbol].get("market_cap", 0) > 0:
             return self._fundamental_cache[symbol]
 
         try:
@@ -88,18 +126,25 @@ class GrowthCompounderStrategy(BaseStrategy):
 
             ticker = yf.Ticker(symbol)
             info = ticker.info or {}
+            mcap = info.get("marketCap", 0) or 0
             fund_data = {
                 "symbol": symbol,
-                "market_cap": info.get("marketCap", 0) or 0,
+                "market_cap": mcap,
                 "rev_growth": info.get("revenueGrowth", 0.0) or 0.0,
                 "eps_growth": info.get("earningsGrowth", 0.0) or 0.0,
                 "roe": info.get("returnOnEquity", 0.0) or 0.0,
                 "op_margin": info.get("operatingMargins", 0.0) or 0.0,
                 "fcf": info.get("freeCashflow", 0) or 0,
             }
-            self._fundamental_cache[symbol] = fund_data
+            if mcap > 0:
+                self._fundamental_cache[symbol] = fund_data
+                self._save_persistent_cache()
             return fund_data
         except Exception:
+            # 若触发 429 或网络异常，若缓存中有历史有效数据则优先复用
+            if symbol in self._fundamental_cache and self._fundamental_cache[symbol].get("market_cap", 0) > 0:
+                return self._fundamental_cache[symbol]
+
             fallback = {
                 "symbol": symbol,
                 "market_cap": 0,

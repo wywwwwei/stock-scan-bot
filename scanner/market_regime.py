@@ -29,7 +29,6 @@ class MarketRegimeResult:
     bias_color: str          # "#10b981" (绿/涨) / "#f59e0b" (橙) / "#3b82f6" (蓝) / "#ef4444" (红)
     tactical_guidance: str   # 针对性操作指引
     macro_narrative: str = "" # 全球大类资产与中国股债跨资产一句话主线定调
-    china_bonds_strategy: str = "" # 中国长短端利率债与信用债实操研判策略（等待/买入/止盈及收益率锚点）
     qqq: Optional[IndexSnapshot] = None
     spy: Optional[IndexSnapshot] = None
     # 全球大类资产联动：金银、油气、加密货币
@@ -119,10 +118,6 @@ class MarketRegimeResult:
             lines.append(f"🌐 宏观主线: {self.macro_narrative}")
             lines.append("--------------------------------------------------")
 
-        if self.china_bonds_strategy:
-            lines.append(f"🇨🇳 中国债市策略: {self.china_bonds_strategy}")
-            lines.append("--------------------------------------------------")
-
         lines.append(f"战术指引: {self.tactical_guidance}")
         lines.append("==================================================")
         return "\n".join(lines)
@@ -199,15 +194,10 @@ class MarketRegimeResult:
             if self.macro_narrative:
                 narrative_html = f"<div style='margin-bottom: 6px; padding: 6px 10px; background-color: #f1f5f9; border-left: 3px solid #0284c7; border-radius: 4px; font-size: 12.5px; color: #0f172a;'>🌐 <b>大类资产主线定调：</b><span style='color: #0369a1; font-weight: 600;'>{self.macro_narrative}</span></div>"
 
-            bonds_strat_html = ""
-            if self.china_bonds_strategy:
-                bonds_strat_html = f"<div style='margin-top: 6px; padding: 6px 10px; background-color: #f0fdf4; border: 1px dashed #86efac; border-radius: 4px; font-size: 12px; color: #14532d; line-height: 1.5;'>🇨🇳 <b>中国利率债与信用债研判策略：</b>{self.china_bonds_strategy}</div>"
-
             macro_html = f"""
     <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 12px; margin-top: 6px; font-size: 12.5px; color: #334155;">
       {narrative_html}
       {''.join(macro_items)}
-      {bonds_strat_html}
     </div>
 """
 
@@ -338,50 +328,6 @@ def _generate_macro_narrative(
     return "；".join(parts) + "。"
 
 
-def _generate_china_bonds_strategy(
-    cgb_30y: Optional[IndexSnapshot],
-    cgb_10y: Optional[IndexSnapshot],
-    cgb_short: Optional[IndexSnapshot],
-    credit_chengtou: Optional[IndexSnapshot],
-    credit_corp: Optional[IndexSnapshot],
-) -> str:
-    """
-    基于系统真实拉取的国债与信用债 ETF（511090.SS, 511260.SS, 511360.SS, 511220.SS）的客观量价、
-    均线（MA20/MA50）和超买超卖指标，输出完全真实、可执行的实操研判策略。
-    """
-    ref_bond = cgb_30y if cgb_30y else cgb_10y
-    if not ref_bond:
-        return "【观望等待】当前中国债券 ETF 数据暂未就绪，建议以中短久期防守为主。"
-
-    # 1. 估值过热或超买预警 (RSI >= 66 或 偏离 20 日均线 >= 1.2%)
-    if ref_bond.rsi14 >= 66.0 or ref_bond.dist_ma20_pct >= 1.2:
-        return (
-            f"【获利止盈 / 暂且观望】{ref_bond.name} 当前报价 ${ref_bond.close:.2f}，偏离 20 日均线达 {ref_bond.dist_ma20_pct:+.2f}% 且 RSI 处于 {ref_bond.rsi14:.1f} 高位超买区，"
-            f"反映国内无风险收益率处于历史极值洼地、交易盘抢跑过热，资本利得已被大幅透支，极易触发监管预期管理或获利盘踩踏调整。"
-            f"实操策略：【长端超长端分批逢高止盈，严禁追涨】；"
-            f"💡 值得买入的配置锚点：等待价格回踩 20 日均线 (${ref_bond.ma20:.2f}) 或 50 日均线 (${ref_bond.ma50:.2f}) 企稳收阳时再行逢低分批建仓；"
-            f"防守建议：底仓优先配置短融 ETF (511360.SS) 与城投债 ETF (511220.SS) 锁定确定性票息。"
-        )
-
-    # 2. 回调超跌或高性价比配置窗口 (RSI <= 42 或 偏离 20 日均线 <= -0.8% 或 跌破 MA50)
-    elif ref_bond.rsi14 <= 42.0 or ref_bond.dist_ma20_pct <= -0.8 or not ref_bond.is_above_ma50:
-        return (
-            f"【战略买入 / 逢低配置窗口】{ref_bond.name} 当前报价 ${ref_bond.close:.2f}，已充分回踩至均线支撑区（距 MA20 为 {ref_bond.dist_ma20_pct:+.2f}%，RSI 为 {ref_bond.rsi14:.1f}），"
-            f"利率调整后收益率安全垫重新释放，国内支持性货币宽松大方向未变，长线机构配置盘托底明确。"
-            f"实操策略：【分批买入】30年国债 ETF (511090.SS) 与 10年国债 ETF (511260.SS)，锁定反弹波段与无风险票息；"
-            f"同时可配置城投债 ETF (511220.SS) 捕捉化债红利与利差收窄收益。"
-        )
-
-    # 3. 稳健均线多头趋势或震荡
-    else:
-        return (
-            f"【持有底仓 / 顺势波段跟踪】{ref_bond.name} 当前报价 ${ref_bond.close:.2f}，稳守 20 日均线 (${ref_bond.ma20:.2f}) 上方，处于健康多头通道，"
-            f"短端流动性合理充裕。实操策略：【沿 20 日均线持有超长债底仓】，以收盘跌破 MA20 作为短期收缩久期的风控线；"
-            f"💡 买入锚点：不追高已连续上涨的超长债，待价格回踩贴近 MA20 (${ref_bond.ma20:.2f} 附近) 缩量企稳时逢低低吸；"
-            f"现金管理：短端短融 ETF (511360.SS) 与公司债 ETF (511030.SS) 波动极低，适合作为避风港稳定吃息。"
-        )
-
-
 def detect_market_regime(datasource) -> MarketRegimeResult:
     """
     通过行情源拉取 QQQ、SPY 以及全球大类资产（金银、油气、加密货币、中国长短利率债与信用债）历史，
@@ -438,13 +384,6 @@ def detect_market_regime(datasource) -> MarketRegimeResult:
         cgb_10y=cgb_10y_snap,
         credit_chengtou=credit_chengtou_snap,
     )
-    china_bonds_strategy = _generate_china_bonds_strategy(
-        cgb_30y=cgb_30y_snap,
-        cgb_10y=cgb_10y_snap,
-        cgb_short=cgb_short_snap,
-        credit_chengtou=credit_chengtou_snap,
-        credit_corp=credit_corp_snap,
-    )
 
     if not ref:
         return MarketRegimeResult(
@@ -454,7 +393,6 @@ def detect_market_regime(datasource) -> MarketRegimeResult:
             bias_color="#64748b",
             tactical_guidance="无法获取大盘基准指数行情，请维持常规风控仓位。",
             macro_narrative=macro_narrative,
-            china_bonds_strategy=china_bonds_strategy,
             gold=gold_snap,
             silver=silver_snap,
             oil=oil_snap,
@@ -478,7 +416,6 @@ def detect_market_regime(datasource) -> MarketRegimeResult:
             bias_color="#f59e0b",
             tactical_guidance="大盘涨幅过大且处于极端超买区，历史数据显示追涨极易遭遇急跌洗盘！建议分批减仓止盈，严禁追高放量阳线与高位新高。",
             macro_narrative=macro_narrative,
-            china_bonds_strategy=china_bonds_strategy,
             qqq=qqq_snap,
             spy=spy_snap,
             gold=gold_snap,
@@ -503,7 +440,6 @@ def detect_market_regime(datasource) -> MarketRegimeResult:
             bias_color="#10b981",
             tactical_guidance="大盘处于健康多头顺风通道，动量持续性较好。可积极参与【机构口袋支点】、【波动率挤压变盘】等右侧起爆策略，止盈设在 +5%~+8%。",
             macro_narrative=macro_narrative,
-            china_bonds_strategy=china_bonds_strategy,
             qqq=qqq_snap,
             spy=spy_snap,
             gold=gold_snap,
@@ -528,7 +464,6 @@ def detect_market_regime(datasource) -> MarketRegimeResult:
             bias_color="#ef4444",
             tactical_guidance="大盘跌破关键均线处于恐慌下行期。以现金防守为主，严禁追突破！仅允许轻仓博弈极低估的【RSI双底背离】与【威科夫极度缩量弹簧坑】短线反抽。",
             macro_narrative=macro_narrative,
-            china_bonds_strategy=china_bonds_strategy,
             qqq=qqq_snap,
             spy=spy_snap,
             gold=gold_snap,
@@ -552,7 +487,6 @@ def detect_market_regime(datasource) -> MarketRegimeResult:
         bias_color="#3b82f6",
         tactical_guidance="大盘处于均线回踩震荡洗盘期（历史实测此时胜率高达 60%+）。重点布局【波动率挤压变盘】与【底部威科夫/MACD底背离/仙股接力】抗跌标的，迎接共振拐点！",
         macro_narrative=macro_narrative,
-        china_bonds_strategy=china_bonds_strategy,
         qqq=qqq_snap,
         spy=spy_snap,
         gold=gold_snap,

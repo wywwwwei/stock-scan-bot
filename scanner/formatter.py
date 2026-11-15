@@ -183,15 +183,6 @@ def _format_executive_summary_html(
     if narrative:
         narrative_line = f"<div style='margin-bottom: 8px; font-size: 12.5px; color: #0f172a; line-height: 1.5;'>🌐 <b>全球跨市场主线：</b><span style='color: #0369a1;'>{narrative}</span></div>"
 
-    bonds_strat = getattr(market_regime, "china_bonds_strategy", "") if market_regime else ""
-    bonds_strat_line = ""
-    if bonds_strat:
-        bonds_strat_line = (
-            f"<div style='margin-bottom: 8px; font-size: 12.5px; color: #14532d; line-height: 1.5; "
-            f"background: #f0fdf4; padding: 7px 11px; border-radius: 5px; border-left: 3px solid #16a34a;'>"
-            f"🇨🇳 <b>中国债市实操研判：</b>{bonds_strat}</div>"
-        )
-
     html = f"""
 <div id="top" style="background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); border: 1px solid #cbd5e1; border-left: 6px solid #2563eb; border-radius: 8px; padding: 14px 18px; margin-bottom: 22px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">
@@ -204,7 +195,6 @@ def _format_executive_summary_html(
     <b>建议仓位水位：</b><span style="color: #047857; font-weight: 700;">{suggested_pos}</span>
   </div>
   {narrative_line}
-  {bonds_strat_line}
   <div style="margin-top: 10px;">
     <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 6px;">🎯 今日 Top 核心共振/精选焦点池：</div>
     {picks_content}
